@@ -19,6 +19,9 @@ class PlatformStatus(BaseModel):
     connection: Literal["connected", "degraded", "offline"] = "connected"
     source_label: str = "Lakebase local adapter"
     latency_ms: int = 12
+    kafka_to_lakebase_latency_ms: int = 6
+    lakebase_to_ui_latency_ms: int = 12
+    end_to_end_latency_ms: int = 18
     last_event_at: datetime = Field(default_factory=utc_now)
 
 
@@ -125,6 +128,7 @@ class IncidentDetail(BaseModel):
     asset_id: str
     title: str
     condition: str
+    trigger_prompt: str
     status: Literal["running", "waiting", "completed", "failed"] = "running"
     status_label: str = "Agent evaluating"
     narrative: list[str] = Field(default_factory=list)

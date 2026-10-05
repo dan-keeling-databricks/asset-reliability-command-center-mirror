@@ -331,7 +331,13 @@ class LocalCommandCenterRuntime:
                     )
                     pump.trend = [*pump.trend[-19:], pump.vibration_mm_s]
                     pump.updated_at = utc_now()
-                snapshot.platform.latency_ms = 9 + (self._tick % 7)
+                snapshot.platform.kafka_to_lakebase_latency_ms = 5 + (self._tick % 4)
+                snapshot.platform.lakebase_to_ui_latency_ms = 9 + (self._tick % 7)
+                snapshot.platform.end_to_end_latency_ms = (
+                    snapshot.platform.kafka_to_lakebase_latency_ms
+                    + snapshot.platform.lakebase_to_ui_latency_ms
+                )
+                snapshot.platform.latency_ms = snapshot.platform.lakebase_to_ui_latency_ms
                 snapshot.platform.last_event_at = utc_now()
 
             await self.repository.mutate(tick)
@@ -423,8 +429,10 @@ class LocalCommandCenterRuntime:
                 ConversationTurn(
                     role="agent",
                     content=(
-                        "This was a normal operating transient. The signal recovered without "
-                        "evidence of developing mechanical failure."
+                        "**Finding:** Normal operating transient.\n"
+                        "**Evidence:** Vibration returned to its expected envelope within 38 "
+                        "seconds.\n**Risk:** No evidence of developing mechanical failure.\n"
+                        "**Action:** No maintenance action required."
                     ),
                 )
             )
@@ -576,8 +584,10 @@ class LocalCommandCenterRuntime:
                 ConversationTurn(
                     role="agent",
                     content=(
-                        "P-204 has a high likelihood of failure before the next maintenance "
-                        "window. I prepared a bearing-replacement work order, but submission is "
+                        "**Finding:** Persistent drive-end bearing vibration excursion.\n"
+                        "**Evidence:** Vibration reached 5.2 mm/s and continued rising.\n"
+                        "**Risk:** 87% likelihood of failure before the next maintenance window.\n"
+                        "**Action:** Bearing-replacement work order prepared; submission is "
                         "waiting for approval."
                     ),
                 )
@@ -634,6 +644,11 @@ class LocalCommandCenterRuntime:
             asset_id=asset_id,
             title=title,
             condition=condition,
+            trigger_prompt=(
+                f"Autonomous alert for {asset_id}: {condition}. Assess failure risk before "
+                "the next maintenance window and pursue the governed response warranted by "
+                "the evidence."
+            ),
             narrative=[
                 f"An automated threshold rule opened this review for {asset_id}. "
                 "The agent received the observed condition and scenario context."

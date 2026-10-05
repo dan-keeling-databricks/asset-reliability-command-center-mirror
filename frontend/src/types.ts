@@ -2,6 +2,9 @@ export type PlatformStatus = {
   connection: "connected" | "degraded" | "offline";
   source_label: string;
   latency_ms: number;
+  kafka_to_lakebase_latency_ms: number;
+  lakebase_to_ui_latency_ms: number;
+  end_to_end_latency_ms: number;
   last_event_at: string;
 };
 
@@ -95,6 +98,7 @@ export type IncidentDetail = {
   asset_id: string;
   title: string;
   condition: string;
+  trigger_prompt: string;
   status: string;
   status_label: string;
   narrative: string[];

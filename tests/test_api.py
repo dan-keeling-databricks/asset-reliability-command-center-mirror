@@ -56,6 +56,12 @@ def test_dashboard_exposes_eight_live_pumps_and_platform_status() -> None:
         assert all("flow_m3_h" in pump and "current_a" in pump for pump in dashboard["pumps"])
         assert dashboard["platform"]["connection"] == "connected"
         assert dashboard["platform"]["latency_ms"] > 0
+        assert dashboard["platform"]["kafka_to_lakebase_latency_ms"] > 0
+        assert dashboard["platform"]["lakebase_to_ui_latency_ms"] > 0
+        assert dashboard["platform"]["end_to_end_latency_ms"] == (
+            dashboard["platform"]["kafka_to_lakebase_latency_ms"]
+            + dashboard["platform"]["lakebase_to_ui_latency_ms"]
+        )
 
 
 def test_trigger_runs_generic_activity_stream_and_waits_for_approval() -> None:
@@ -81,11 +87,13 @@ def test_trigger_runs_generic_activity_stream_and_waits_for_approval() -> None:
         assert any(run["incident_id"] == incident_id for run in dashboard["active_runs"])
 
         incident = client.get(f"/api/incidents/{incident_id}").json()
+        assert incident["trigger_prompt"].startswith("Autonomous alert for P-204")
         assert incident["status"] == "waiting"
         assert incident["totals"]["tool_calls"] == 3
         assert incident["totals"]["input_tokens"] > 0
         assert incident["activities"][-1]["status"] == "waiting"
         assert incident["activities"][-1]["action"]["endpoint"].endswith("/approve")
+        assert incident["conversation"][-1]["content"].startswith("**Finding:**")
 
         repeated = client.post("/api/scenario/trigger-p204")
         assert repeated.status_code == 409

@@ -217,7 +217,8 @@ class ProductionCommandCenterRuntime:
                         "You are a code-defined asset reliability agent. Follow the governed "
                         "Skill below. Choose tools from the capabilities discovered at runtime; "
                         "do not assume a fixed sequence or call count. Never claim an action ran "
-                        "when a tool was blocked. Finish with one concise operator response.\n\n"
+                        "when a tool was blocked. Finish with one concise operator response using "
+                        "four bullet-led sections: Finding, Evidence, Risk, and Action.\n\n"
                         f"GOVERNED SKILL:\n{skill_instructions}"
                     ),
                 },

@@ -1,9 +1,12 @@
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  AlertSummary,
   DashboardSnapshot,
   IncidentDetail,
+  InvocationSummary,
   PumpState,
-  RuntimeAction
+  RuntimeAction,
+  RuntimeActivity
 } from "./types";
 
 async function jsonRequest<T>(url: string, init?: RequestInit): Promise<T> {
@@ -48,15 +51,50 @@ function StatusPill({ status, label }: { status: string; label: string }) {
   return <span className={`status-pill status-${status}`}>{label}</span>;
 }
 
+const EVENT_ICONS: Record<string, ReactNode> = {
+  model_call: "✦",
+  skill: "◇",
+  mcp: "⇄",
+  tool_call: "⌁",
+  tool_result: "✓",
+  approval: "⚿",
+  agent: "AI",
+  operator: "●",
+  runtime: "!"
+};
+
+function EventIcon({ category }: { category: string }) {
+  return <span className={`event-icon icon-${category}`}>{EVENT_ICONS[category] ?? "·"}</span>;
+}
+
+function AgentMessage({ content }: { content: string }) {
+  return (
+    <div className="structured-message">
+      {content.split("\n").map((line, index) => {
+        const match = line.match(/^\*\*(Finding|Evidence|Risk|Action):\*\*\s*(.*)$/);
+        return match ? <p key={index}><strong>{match[1]}</strong><span>{match[2]}</span></p> : <p key={index}>{line}</p>;
+      })}
+    </div>
+  );
+}
+
+type HistoryRecord = {
+  alert: AlertSummary;
+  invocation?: InvocationSummary;
+};
+
 function App() {
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
   const [incident, setIncident] = useState<IncidentDetail | null>(null);
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<"fleet" | "history">("fleet");
+  const [incidentView, setIncidentView] = useState<"conversation" | "timeline">("conversation");
+  const [menuOpen, setMenuOpen] = useState(false);
   const [followUp, setFollowUp] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [backendMode, setBackendMode] = useState<"local" | "lakebase">("local");
-  const timelineRef = useRef<HTMLDivElement>(null);
+  const conversationRef = useRef<HTMLDivElement>(null);
 
   const refreshIncident = useCallback(async (incidentId: string) => {
     const detail = await jsonRequest<IncidentDetail>(`/api/incidents/${incidentId}`);
@@ -99,17 +137,24 @@ function App() {
   }, [refreshIncident, selectedIncidentId, snapshot?.revision]);
 
   useEffect(() => {
-    const timeline = timelineRef.current;
-    if (timeline) timeline.scrollTop = timeline.scrollHeight;
-  }, [incident?.activities.length]);
+    const conversation = conversationRef.current;
+    if (conversation && incidentView === "conversation") conversation.scrollTop = conversation.scrollHeight;
+  }, [incident?.activities.length, incident?.conversation.length, incidentView]);
 
   const activeByAsset = useMemo(
     () => new Map(snapshot?.active_runs.map((run) => [run.asset_id, run]) ?? []),
     [snapshot?.active_runs]
   );
 
+  const historyRecords = useMemo<HistoryRecord[]>(() => {
+    if (!snapshot) return [];
+    const invocationByIncident = new Map(snapshot.invocations.map((run) => [run.incident_id, run]));
+    return snapshot.alerts.map((alert) => ({ alert, invocation: invocationByIncident.get(alert.incident_id) }));
+  }, [snapshot]);
+
   const openIncident = async (incidentId: string) => {
     setSelectedIncidentId(incidentId);
+    setIncidentView("conversation");
     setIncident(null);
     try {
       await refreshIncident(incidentId);
@@ -120,6 +165,7 @@ function App() {
 
   const restart = async () => {
     setBusy(true);
+    setMenuOpen(false);
     setError(null);
     setIncident(null);
     setSelectedIncidentId(null);
@@ -134,12 +180,10 @@ function App() {
 
   const trigger = async () => {
     setBusy(true);
+    setMenuOpen(false);
     setError(null);
     try {
-      const response = await jsonRequest<{ incident_id?: string }>(
-        "/api/scenario/trigger-p204",
-        { method: "POST" }
-      );
+      const response = await jsonRequest<{ incident_id?: string }>("/api/scenario/trigger-p204", { method: "POST" });
       if (response.incident_id) await openIncident(response.incident_id);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to trigger excursion");
@@ -149,9 +193,7 @@ function App() {
   };
 
   const runAction = async (action: RuntimeAction) => {
-    if (action.href) {
-      window.open(action.href, "_blank", "noopener,noreferrer");
-    }
+    if (action.href) window.open(action.href, "_blank", "noopener,noreferrer");
     if (!action.endpoint) return;
     setBusy(true);
     try {
@@ -187,190 +229,114 @@ function App() {
     return <div className="loading-screen"><div className="loading-mark" />Connecting to live operations…</div>;
   }
 
-  const normalCount = snapshot.pumps.filter((pump) => pump.state === "normal").length;
-  const openAlerts = snapshot.alerts.filter((alert) => alert.status !== "resolved").length;
+  const conversationItems = incident ? [
+    ...incident.activities.map((activity) => ({ kind: "activity" as const, at: activity.emitted_at, activity })),
+    ...incident.conversation.map((turn) => ({ kind: "message" as const, at: turn.created_at, turn }))
+  ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime()) : [];
 
   return (
     <main className="command-center">
-      {backendMode === "lakebase" && (
-        <div className="live-backend-banner" role="status">
-          <strong>LIVE BACKEND</strong>
-          <span>Controls and approvals modify the shared Databricks demo environment.</span>
-        </div>
-      )}
+      {backendMode === "lakebase" && <div className="live-backend-banner" role="status"><strong>LIVE BACKEND</strong><span>Controls and approvals modify the shared Databricks demo environment.</span></div>}
       <header className="command-header">
-        <div className="brand-lockup">
-          <div className="brand-glyph"><span /></div>
-          <div>
-            <p>Databricks Intelligence Platform</p>
-            <h1>Asset Reliability Command Center</h1>
-          </div>
+        <div className="brand-lockup"><div className="brand-glyph"><span /></div><div><p>Databricks Intelligence Platform</p><h1>Asset Reliability Command Center</h1></div></div>
+        <div className="latency-panel">
+          <div className={`connection-dot connection-${snapshot.platform.connection}`} aria-label={snapshot.platform.connection} />
+          <div><span>Kafka → Lakebase</span><strong>{snapshot.platform.kafka_to_lakebase_latency_ms} ms</strong></div>
+          <div><span>Lakebase → UI</span><strong>{snapshot.platform.lakebase_to_ui_latency_ms} ms</strong></div>
+          <div className="latency-total"><span>End to end</span><strong>{snapshot.platform.end_to_end_latency_ms} ms</strong></div>
         </div>
-        <div className="platform-status">
-          <div className={`connection-dot connection-${snapshot.platform.connection}`} />
-          <div><strong>{snapshot.platform.source_label}</strong><span>Live operational state</span></div>
-          <div className="latency"><strong>{snapshot.platform.latency_ms} ms</strong><span>Lakebase query latency</span></div>
-        </div>
-        <div className="header-actions">
-          <button className="button-ghost" onClick={() => void restart()} disabled={busy}>Clear & restart</button>
-          <button
-            className="button-primary"
-            onClick={() => void trigger()}
-            disabled={busy || snapshot.scenario.p204_triggered}
-          >Trigger P-204 excursion</button>
+        <div className="demo-menu-wrap">
+          <button className="menu-button" aria-label="Open demo controls" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}><i /><i /><i /></button>
+          {menuOpen && <div className="demo-menu"><p>Demo controls</p><button onClick={() => void trigger()} disabled={busy || snapshot.scenario.p204_triggered}>Trigger P-204 excursion<span>Start the governed failure scenario</span></button><button className="menu-danger" onClick={() => void restart()} disabled={busy}>Clear & restart<span>Reset all scenario activity</span></button></div>}
         </div>
       </header>
 
       {error && <div className="global-error">{error}</div>}
 
-      <section className="summary-strip">
-        <div><span>Fleet</span><strong>8 pumps</strong><small>Continuous telemetry</small></div>
-        <div><span>Normal</span><strong>{normalCount}</strong><small>Inside operating envelope</small></div>
-        <div><span>Agents active</span><strong>{snapshot.active_runs.length}</strong><small>Concurrent evaluations</small></div>
-        <div><span>Open alerts</span><strong>{openAlerts}</strong><small>Current scenario</small></div>
-        <div className="scenario-id"><span>Scenario</span><strong>{snapshot.scenario.id.replace("scenario_", "#")}</strong><small>Started {timeLabel(snapshot.scenario.started_at)}</small></div>
-      </section>
+      <nav className="primary-tabs" aria-label="Command center views">
+        <button className={activeView === "fleet" ? "active" : ""} onClick={() => setActiveView("fleet")}>Live fleet</button>
+        <button className={activeView === "history" ? "active" : ""} onClick={() => setActiveView("history")}>History <span>{snapshot.alerts.length}</span></button>
+      </nav>
 
-      <section className="fleet-section">
-        <div className="section-heading">
-          <div><p>Live fleet</p><h2>Comparable pump assets</h2></div>
-          <span className="streaming-label"><i /> Streaming now</span>
-        </div>
-        <div className="pump-grid">
-          {snapshot.pumps.map((pump) => {
-            const active = activeByAsset.get(pump.asset_id);
-            const relatedAlert = snapshot.alerts.find((alert) => alert.asset_id === pump.asset_id);
-            return (
-              <article
-                key={pump.asset_id}
-                className={`pump-card pump-${pump.state} ${relatedAlert ? "pump-clickable" : ""}`}
-                onClick={() => relatedAlert && void openIncident(relatedAlert.incident_id)}
-              >
-                <div className="pump-card-head">
-                  <div><strong>{pump.asset_id}</strong><span>{pump.name}</span></div>
-                  <StatusPill status={pump.state} label={pump.state_label} />
-                </div>
-                <div className="pump-signal">
-                  <div><span>Vibration</span><strong>{pump.vibration_mm_s.toFixed(2)} <small>mm/s</small></strong></div>
-                  <Sparkline pump={pump} />
-                </div>
-                <div className="pump-metrics">
-                  <span><small>Flow</small>{pump.flow_m3_h.toFixed(1)} m³/h</span>
-                  <span><small>Current</small>{pump.current_a.toFixed(1)} A</span>
-                  <span><small>Threshold</small>{pump.warning_threshold_mm_s.toFixed(1)} mm/s</span>
-                </div>
-                {active && (
-                  <div className="agent-active">
-                    <div className="agent-orbit"><i /></div>
-                    <div><strong>{active.label}</strong><span>{active.current_activity}</span></div>
-                  </div>
-                )}
-                {pump.maintenance_label && <div className="maintenance-tag">✓ {pump.maintenance_label}</div>}
-              </article>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="history-grid">
-        <article className="history-panel">
-          <div className="history-heading"><div><p>Detected conditions</p><h2>Alert history</h2></div><span>{snapshot.alerts.length}</span></div>
-          <div className="history-list">
-            {!snapshot.alerts.length && <div className="empty-row">Threshold events will appear here.</div>}
-            {snapshot.alerts.map((alert) => (
-              <button className="history-row" key={alert.id} onClick={() => void openIncident(alert.incident_id)}>
-                <span className={`row-marker marker-${alert.status}`} />
-                <div className="row-main"><strong>{alert.asset_id} · {alert.title}</strong><span>{alert.resolution ?? alert.condition}</span></div>
-                <div className="row-end"><StatusPill status={alert.status} label={alert.status_label} /><time>{timeLabel(alert.observed_at)}</time></div>
-                <span className="row-chevron">›</span>
+      {activeView === "fleet" ? (
+        <section className="fleet-section">
+          <div className="section-heading"><div><p>Live fleet</p><h2>Comparable pump assets</h2></div><span className="streaming-label"><i /> Streaming now</span></div>
+          <div className="pump-grid">
+            {snapshot.pumps.map((pump) => {
+              const active = activeByAsset.get(pump.asset_id);
+              const relatedAlert = snapshot.alerts.find((alert) => alert.asset_id === pump.asset_id);
+              return (
+                <article key={pump.asset_id} className={`pump-card pump-${pump.state} ${relatedAlert ? "pump-clickable" : ""}`} onClick={() => relatedAlert && void openIncident(relatedAlert.incident_id)}>
+                  <div className="pump-card-head"><div><strong>{pump.asset_id}</strong><span>{pump.name}</span></div><StatusPill status={pump.state} label={pump.state_label} /></div>
+                  <div className="pump-signal"><div><span>Vibration</span><strong>{pump.vibration_mm_s.toFixed(2)} <small>mm/s</small></strong></div><Sparkline pump={pump} /></div>
+                  <div className="pump-metrics"><span><small>Flow</small>{pump.flow_m3_h.toFixed(1)} m³/h</span><span><small>Current</small>{pump.current_a.toFixed(1)} A</span><span><small>Threshold</small>{pump.warning_threshold_mm_s.toFixed(1)} mm/s</span></div>
+                  {active && <div className="agent-active"><div className="agent-orbit"><i /></div><div><strong>{active.label}</strong><span>{active.current_activity}</span></div></div>}
+                  {pump.maintenance_label && <div className="maintenance-tag">✓ {pump.maintenance_label}</div>}
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ) : (
+        <section className="history-page">
+          <div className="history-page-header"><div><p>Operational record</p><h2>Alert & agent history</h2><span>One record for every detected condition and autonomous review.</span></div><strong>{historyRecords.length} incidents</strong></div>
+          <div className="history-table-head"><span>Asset & condition</span><span>Alert</span><span>Agent execution</span><span>Outcome</span><span>Observed</span><i /></div>
+          <div className="history-records">
+            {!historyRecords.length && <div className="empty-row">Incidents will appear here as conditions are detected.</div>}
+            {historyRecords.map(({ alert, invocation }) => (
+              <button className="history-record" key={alert.id} onClick={() => void openIncident(alert.incident_id)}>
+                <div className="history-asset"><span className={`row-marker marker-${alert.status}`} /><div><strong>{alert.asset_id}</strong><span>{alert.title}</span></div></div>
+                <StatusPill status={alert.status} label={alert.status_label} />
+                {invocation ? <StatusPill status={invocation.status} label={invocation.status_label} /> : <span>—</span>}
+                <span className="history-outcome">{invocation?.outcome ?? alert.resolution ?? "Review in progress"}</span>
+                <time>{timeLabel(alert.observed_at)}</time><span className="row-chevron">›</span>
               </button>
             ))}
           </div>
-        </article>
-
-        <article className="history-panel">
-          <div className="history-heading"><div><p>Autonomous operations</p><h2>Invocation history</h2></div><span>{snapshot.invocations.length}</span></div>
-          <div className="history-list">
-            {!snapshot.invocations.length && <div className="empty-row">Agent invocations will appear here.</div>}
-            {snapshot.invocations.map((run) => (
-              <button className="history-row" key={run.id} onClick={() => void openIncident(run.incident_id)}>
-                <span className={`run-symbol run-${run.status}`}><i /></span>
-                <div className="row-main"><strong>{run.asset_id} · {run.title}</strong><span>{run.outcome ?? "Reviewing live operating context"}</span></div>
-                <div className="row-end"><StatusPill status={run.status} label={run.status_label} /><time>{timeLabel(run.started_at)}</time></div>
-                <span className="row-chevron">›</span>
-              </button>
-            ))}
-          </div>
-        </article>
-      </section>
-
-      {selectedIncidentId && (
-        <div className="overlay" role="dialog" aria-modal="true" aria-label="Incident review">
-          <div className="overlay-backdrop" onClick={() => setSelectedIncidentId(null)} />
-          <section className="incident-review">
-            {!incident ? (
-              <div className="incident-loading">Loading incident review…</div>
-            ) : (
-              <>
-                <header className="incident-header">
-                  <div><p>Incident review · {incident.asset_id}</p><h2>{incident.title}</h2><span>{incident.condition}</span></div>
-                  <StatusPill status={incident.status} label={incident.status_label} />
-                  <button className="close-button" onClick={() => setSelectedIncidentId(null)} aria-label="Close incident review">×</button>
-                </header>
-                <div className="incident-body">
-                  <section className="narrative-pane">
-                    <div className="pane-heading"><p>Agent assessment</p><h3>What the agent found</h3></div>
-                    <div className="narrative-card">
-                      {incident.narrative.map((paragraph, index) => <p key={index}>{paragraph}</p>)}
-                    </div>
-                    {incident.conversation.length > 0 && (
-                      <div className="conversation-thread">
-                        {incident.conversation.map((turn) => (
-                          <div className={`conversation-turn turn-${turn.role}`} key={turn.id}>
-                            <span>{turn.role === "operator" ? "You" : "Reliability agent"}</span>
-                            <p>{turn.content}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <form className="follow-up" onSubmit={submitFollowUp}>
-                      <label htmlFor="follow-up">Ask a follow-up</label>
-                      <div><input id="follow-up" value={followUp} onChange={(event) => setFollowUp(event.target.value)} placeholder="Ask about evidence, risk, or the response…" disabled={busy} /><button disabled={busy || !followUp.trim()}>Send</button></div>
-                    </form>
-                  </section>
-
-                  <section className="activity-pane">
-                    <div className="pane-heading"><p>Runtime evidence</p><h3>Agent activity</h3><span>Events appear exactly as emitted</span></div>
-                    <div className="timeline" ref={timelineRef}>
-                      {!incident.activities.length && <div className="timeline-empty"><i />Waiting for the first runtime event…</div>}
-                      {incident.activities.map((activity) => (
-                        <article className={`timeline-event event-${activity.status}`} key={activity.id}>
-                          <div className="timeline-rail"><span /><i /></div>
-                          <div className="event-content">
-                            <div className="event-kicker"><span>{activity.category}</span><time>{timeLabel(activity.emitted_at)}</time></div>
-                            <div className="event-title"><div><strong>{activity.title}</strong>{activity.actor && <span>{activity.actor}</span>}</div><StatusPill status={activity.status} label={activity.status_label} /></div>
-                            {activity.summary && <p>{activity.summary}</p>}
-                            {activity.details.length > 0 && <dl>{activity.details.map((detail) => <div key={`${activity.id}-${detail.label}`}><dt>{detail.label}</dt><dd>{detail.value}</dd></div>)}</dl>}
-                            {activity.action && <button className="runtime-action" disabled={busy} onClick={() => void runAction(activity.action!)}>{activity.action.label}</button>}
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  </section>
-                </div>
-                <footer className="incident-footer">
-                  <div><span>Total tokens</span><strong>{(incident.totals.input_tokens + incident.totals.output_tokens).toLocaleString()}</strong></div>
-                  <div><span>Estimated cost</span><strong>${incident.totals.estimated_cost_usd.toFixed(4)}</strong></div>
-                  <div><span>Tool calls</span><strong>{incident.totals.tool_calls}</strong></div>
-                  <button onClick={() => setSelectedIncidentId(null)}>Close review</button>
-                </footer>
-              </>
-            )}
-          </section>
-        </div>
+        </section>
       )}
+
+      {selectedIncidentId && <div className="overlay" role="dialog" aria-modal="true" aria-label="Incident review">
+        <div className="overlay-backdrop" onClick={() => setSelectedIncidentId(null)} />
+        <section className="incident-review">
+          {!incident ? <div className="incident-loading">Loading incident review…</div> : <>
+            <header className="incident-header"><div><p>Incident review · {incident.asset_id}</p><h2>{incident.title}</h2></div><StatusPill status={incident.status} label={incident.status_label} /><button className="close-button" onClick={() => setSelectedIncidentId(null)} aria-label="Close incident review">×</button></header>
+            <div className="incident-workspace">
+              <details className="prompt-summary">
+                <summary><div className="prompt-icon">↗</div><div><span>Initiating context</span><strong>Autonomous threshold review</strong></div><dl><div><dt>Asset</dt><dd>{incident.asset_id}</dd></div><div><dt>Observed condition</dt><dd>{incident.condition}</dd></div><div><dt>Objective</dt><dd>Assess risk and take governed action</dd></div></dl><b>Full prompt⌄</b></summary>
+                <div className="raw-prompt"><span>Prompt sent to agent</span><p>{incident.trigger_prompt}</p></div>
+              </details>
+              <div className="incident-toolbar"><div className="view-toggle"><button className={incidentView === "conversation" ? "active" : ""} onClick={() => setIncidentView("conversation")}>Conversation</button><button className={incidentView === "timeline" ? "active" : ""} onClick={() => setIncidentView("timeline")}>Execution timeline</button></div><span>Runtime events · exactly as emitted</span></div>
+              {incidentView === "conversation" ? <div className="unified-conversation" ref={conversationRef}>
+                {!conversationItems.length && <div className="timeline-empty"><i />Waiting for the first runtime event…</div>}
+                {conversationItems.map((item) => item.kind === "activity" ? <ActivityCard key={item.activity.id} activity={item.activity} busy={busy} runAction={runAction} /> : <article className={`chat-event chat-${item.turn.role}`} key={item.turn.id}><EventIcon category={item.turn.role} /><div><div className="chat-meta"><strong>{item.turn.role === "operator" ? "You" : "Reliability agent"}</strong><time>{timeLabel(item.turn.created_at)}</time></div>{item.turn.role === "agent" ? <AgentMessage content={item.turn.content} /> : <p>{item.turn.content}</p>}</div></article>)}
+              </div> : <ExecutionTimeline activities={incident.activities} />}
+              <form className="follow-up" onSubmit={submitFollowUp}><label htmlFor="follow-up">Ask a follow-up</label><div><input id="follow-up" value={followUp} onChange={(event) => setFollowUp(event.target.value)} placeholder="Ask about evidence, risk, or the response…" disabled={busy} /><button disabled={busy || !followUp.trim()}>Send</button></div></form>
+            </div>
+            <footer className="incident-footer"><div><span>Total tokens</span><strong>{(incident.totals.input_tokens + incident.totals.output_tokens).toLocaleString()}</strong></div><div><span>Estimated cost</span><strong>${incident.totals.estimated_cost_usd.toFixed(4)}</strong></div><div><span>Tool calls</span><strong>{incident.totals.tool_calls}</strong></div><button onClick={() => setSelectedIncidentId(null)}>Close review</button></footer>
+          </>}
+        </section>
+      </div>}
     </main>
   );
+}
+
+function ActivityCard({ activity, busy, runAction }: { activity: RuntimeActivity; busy: boolean; runAction: (action: RuntimeAction) => Promise<void> }) {
+  const category = activity.status === "waiting" ? "approval" : activity.category;
+  return <article className={`chat-event runtime-event event-${activity.status}`}><EventIcon category={category} /><div className="event-content"><div className="event-kicker"><span>{activity.category.replace("_", " ")}</span><time>{timeLabel(activity.emitted_at)}</time></div><div className="event-title"><div><strong>{activity.title}</strong>{activity.actor && <span>{activity.actor}</span>}</div><StatusPill status={activity.status} label={activity.status_label} /></div>{activity.summary && <p>{activity.summary}</p>}{activity.details.length > 0 && <dl>{activity.details.map((detail) => <div key={`${activity.id}-${detail.label}`}><dt>{detail.label}</dt><dd>{detail.value}</dd></div>)}</dl>}{activity.action && <button className="runtime-action" disabled={busy} onClick={() => void runAction(activity.action!)}>{activity.action.label}</button>}</div></article>;
+}
+
+function ExecutionTimeline({ activities }: { activities: RuntimeActivity[] }) {
+  const start = activities.length ? new Date(activities[0].emitted_at).getTime() : 0;
+  const end = activities.length ? Math.max(new Date(activities[activities.length - 1].emitted_at).getTime(), start + 1000) : start + 1000;
+  const range = Math.max(end - start, 1000);
+  return <div className="execution-view"><div className="execution-scale"><span>Start</span><span>Agent execution</span><span>Latest event</span></div>{activities.length === 0 ? <div className="timeline-empty">No runtime activity yet.</div> : activities.map((activity, index) => {
+    const current = new Date(activity.emitted_at).getTime();
+    const next = activities[index + 1] ? new Date(activities[index + 1].emitted_at).getTime() : current + Math.max(range * 0.08, 500);
+    const left = Math.min(82, ((current - start) / range) * 82);
+    const width = activity.status === "waiting" ? 12 : Math.max(7, Math.min(28, ((next - current) / range) * 82));
+    return <div className="execution-row" key={activity.id}><div className="execution-label"><EventIcon category={activity.status === "waiting" ? "approval" : activity.category} /><div><strong>{activity.title}</strong><span>{activity.actor ?? activity.category}</span></div></div><div className="execution-track"><span className={`execution-bar bar-${activity.status}`} style={{ left: `${left}%`, width: `${width}%` }}><i>{activity.status === "waiting" ? "Awaiting human" : activity.status_label}</i></span></div><time>{timeLabel(activity.emitted_at)}</time></div>;
+  })}</div>;
 }
 
 export default App;

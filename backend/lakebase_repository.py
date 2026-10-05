@@ -373,6 +373,7 @@ class LakebaseCommandCenterRepository:
         pump_models: list[PumpState] = []
         active_runs: list[ActiveRun] = []
         latest_ingested: datetime | None = None
+        kafka_to_lakebase_latency_ms = 0
         baselines = {
             "P-201": (182.0, 42.0, 1.35),
             "P-202": (179.0, 41.5, 1.45),
@@ -396,6 +397,10 @@ class LakebaseCommandCenterRepository:
             ingested = row["ingested_at"]
             if ingested and (latest_ingested is None or ingested > latest_ingested):
                 latest_ingested = ingested
+                if row["event_time"]:
+                    kafka_to_lakebase_latency_ms = max(
+                        0, round((ingested - row["event_time"]).total_seconds() * 1000)
+                    )
             pump_models.append(
                 PumpState(
                     asset_id=row["pump_id"],
@@ -439,6 +444,9 @@ class LakebaseCommandCenterRepository:
             platform=PlatformStatus(
                 source_label="Lakebase · live operational state",
                 latency_ms=query_latency_ms,
+                kafka_to_lakebase_latency_ms=kafka_to_lakebase_latency_ms,
+                lakebase_to_ui_latency_ms=query_latency_ms,
+                end_to_end_latency_ms=kafka_to_lakebase_latency_ms + query_latency_ms,
                 last_event_at=latest_ingested or scenario["started_at"],
             ),
             pumps=pump_models,
@@ -457,6 +465,9 @@ class LakebaseCommandCenterRepository:
         stable = snapshot.model_copy(deep=True)
         stable.revision = 0
         stable.platform.latency_ms = 0
+        stable.platform.kafka_to_lakebase_latency_ms = 0
+        stable.platform.lakebase_to_ui_latency_ms = 0
+        stable.platform.end_to_end_latency_ms = 0
         fingerprint = stable.model_dump_json()
         async with self._revision_lock:
             if fingerprint != self._fingerprint:
@@ -518,7 +529,7 @@ class LakebaseCommandCenterRepository:
                 await connection.execute(
                     sql.SQL(
                         """SELECT incident.*, run.run_id::text, run.status AS run_status,
-                        run.pending_approval_url, run.pending_tool_request,
+                        run.pending_approval_url, run.pending_tool_request, run.trigger_prompt,
                         run.total_input_tokens, run.total_output_tokens,
                         run.estimated_cost_usd, run.tool_call_count,
                         run.started_at, run.completed_at
@@ -602,6 +613,7 @@ class LakebaseCommandCenterRepository:
                 f"Vibration reached {float(row['observed_value']):.2f} mm/s and "
                 f"crossed the {float(row['threshold_value']):.1f} mm/s warning threshold"
             ),
+            trigger_prompt=row["trigger_prompt"],
             status=status,
             status_label=label,
             narrative=narrative,
