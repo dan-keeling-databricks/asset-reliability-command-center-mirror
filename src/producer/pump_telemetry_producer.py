@@ -67,14 +67,14 @@ class SimulationState:
 
 
 PUMPS = (
-    PumpProfile("P-201", 182.0, 8.4, 1.35, 57.0, 42.0),
+    PumpProfile("P-201", 182.0, 8.4, 1.20, 57.0, 42.0),
     PumpProfile("P-202", 179.0, 8.2, 1.45, 58.0, 41.5),
-    PumpProfile("P-203", 185.0, 8.5, 1.30, 56.5, 42.5),
-    PumpProfile("P-204", 181.0, 8.3, 1.55, 59.0, 42.0),
-    PumpProfile("P-205", 177.0, 8.1, 1.40, 57.5, 41.0),
-    PumpProfile("P-206", 184.0, 8.4, 1.25, 56.0, 42.4),
-    PumpProfile("P-207", 180.0, 8.2, 1.50, 58.5, 41.8),
-    PumpProfile("P-208", 183.0, 8.3, 1.32, 57.0, 42.1),
+    PumpProfile("P-203", 185.0, 8.5, 1.70, 56.5, 42.5),
+    PumpProfile("P-204", 181.0, 8.3, 1.95, 59.0, 42.0),
+    PumpProfile("P-205", 177.0, 8.1, 2.20, 57.5, 41.0),
+    PumpProfile("P-206", 184.0, 8.4, 2.45, 56.0, 42.4),
+    PumpProfile("P-207", 180.0, 8.2, 2.70, 58.5, 41.8),
+    PumpProfile("P-208", 183.0, 8.3, 2.95, 57.0, 42.1),
 )
 
 NAMESPACE = uuid.UUID("39deea2a-8ef5-4fb9-94b6-5ce34c505855")
@@ -264,11 +264,18 @@ def telemetry_for(
     elapsed = now_monotonic - state.started_monotonic
     seed = f"{state.scenario_id}:{state.sequence}:{profile.pump_id}"
     noise = random.Random(seed)
-    load_wave = math.sin((elapsed / 20.0) + int(profile.pump_id[-1]) * 0.41)
+    pump_index = int(profile.pump_id[-1])
+    load_wave = math.sin((elapsed / (12.0 + pump_index * 1.7)) + pump_index * 0.73)
+    vibration_wave = math.sin((elapsed / (4.0 + pump_index * 0.55)) + pump_index * 1.11)
 
     flow = profile.flow_m3h + 2.0 * load_wave + noise.uniform(-0.7, 0.7)
     pressure = profile.pressure_bar + 0.08 * load_wave + noise.uniform(-0.03, 0.03)
-    vibration = profile.vibration_mm_s + 0.08 * load_wave + noise.uniform(-0.04, 0.04)
+    vibration = (
+        profile.vibration_mm_s
+        + 0.10 * load_wave
+        + 0.07 * vibration_wave
+        + noise.uniform(-0.04, 0.04)
+    )
     temperature = profile.bearing_temp_c + 0.35 * load_wave + noise.uniform(-0.12, 0.12)
     current = profile.motor_current_a + 0.5 * load_wave + noise.uniform(-0.2, 0.2)
 

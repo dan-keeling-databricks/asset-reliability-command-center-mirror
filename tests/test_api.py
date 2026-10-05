@@ -91,9 +91,32 @@ def test_trigger_runs_generic_activity_stream_and_waits_for_approval() -> None:
         assert incident["status"] == "waiting"
         assert incident["totals"]["tool_calls"] == 3
         assert incident["totals"]["input_tokens"] > 0
-        assert incident["activities"][-1]["status"] == "waiting"
-        assert incident["activities"][-1]["action"]["endpoint"].endswith("/approve")
-        assert incident["conversation"][-1]["content"].startswith("**Finding:**")
+        waiting = next(
+            activity for activity in incident["activities"] if activity["status"] == "waiting"
+        )
+        assert waiting["action"]["endpoint"].endswith("/approve")
+        assert incident["conversation"][-1]["content"].startswith("- **Finding:**")
+        tool_titles = {
+            activity["title"]
+            for activity in incident["activities"]
+            if activity["category"] == "tool_call"
+        }
+        assert tool_titles == {
+            "get_asset_telemetry",
+            "prepare_work_order",
+            "submit_work_order",
+        }
+        model_activities = [
+            activity for activity in incident["activities"] if activity["category"] == "model_call"
+        ]
+        assert {activity["title"] for activity in model_activities} == {
+            "Model execution",
+            "Final response",
+        }
+        assert all(
+            any(detail["label"] == "Model output" for detail in activity["details"])
+            for activity in model_activities
+        )
 
         repeated = client.post("/api/scenario/trigger-p204")
         assert repeated.status_code == 409
@@ -117,7 +140,12 @@ def test_approval_and_follow_up_complete_incident() -> None:
         assert approved.status_code == 202
         incident = client.get(f"/api/incidents/{incident_id}").json()
         assert incident["status"] == "completed"
-        assert incident["activities"][-2]["status_label"] == "APPROVED · ALLOW"
+        submit = next(
+            activity
+            for activity in incident["activities"]
+            if activity["title"] == "submit_work_order" and activity["category"] == "tool_call"
+        )
+        assert submit["status_label"] == "APPROVED · ALLOW"
         assert incident["activities"][-1]["category"] == "tool_result"
 
         follow_up = client.post(
@@ -156,3 +184,13 @@ def test_local_fleet_has_stable_widely_spaced_normal_baselines() -> None:
     assert min(vibrations) == 1.2
     assert max(vibrations) == 2.95
     assert all(value < 4.4 for value in vibrations)
+
+
+def test_active_threshold_review_is_not_preclassified_as_transient() -> None:
+    with local_client() as client:
+        dashboard = wait_for(client, lambda state: bool(state["active_runs"]))
+        active_assets = {run["asset_id"] for run in dashboard["active_runs"]}
+        active_pumps = [pump for pump in dashboard["pumps"] if pump["asset_id"] in active_assets]
+
+        assert active_pumps
+        assert all(pump["state_label"] == "Agent reviewing" for pump in active_pumps)

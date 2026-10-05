@@ -227,7 +227,7 @@ class LocalCommandCenterRuntime:
             current.activities.append(
                 RuntimeActivity(
                     category="tool_result",
-                    title="Maintenance action completed",
+                    title="submit_work_order",
                     actor="Enterprise maintenance service",
                     status="complete",
                     status_label="Completed",
@@ -295,12 +295,15 @@ class LocalCommandCenterRuntime:
             current.activities.append(
                 RuntimeActivity(
                     category="model_call",
-                    title="Follow-up response",
+                    title="Final response",
                     actor="databricks-claude-sonnet-4-5",
                     status="complete",
                     status_label="Completed",
                     summary="Answered using persisted incident context.",
-                    details=[ActivityDatum(label="Output tokens", value="96")],
+                    details=[
+                        ActivityDatum(label="Output tokens", value="96"),
+                        ActivityDatum(label="Model output", value=answer),
+                    ],
                 )
             )
             current.totals.input_tokens += 284
@@ -319,10 +322,13 @@ class LocalCommandCenterRuntime:
                 del incidents
                 for index, pump in enumerate(snapshot.pumps):
                     baseline = PUMP_DEFINITIONS[index][3]
-                    wobble = math.sin((self._tick + index) / 2.3) * 0.09
+                    wobble = (
+                        math.sin((self._tick + index * 1.7) / (2.1 + index * 0.12)) * 0.10
+                        + math.sin((self._tick + index * 2.3) / (4.2 + index * 0.18)) * 0.06
+                    )
                     if pump.asset_id in self._excursion_assets:
                         next_value = min(7.2, pump.vibration_mm_s + 0.38)
-                    elif pump.state == "transient":
+                    elif pump.active_run_id:
                         next_value = max(4.48, pump.vibration_mm_s + wobble)
                     else:
                         next_value = baseline + wobble
@@ -363,8 +369,8 @@ class LocalCommandCenterRuntime:
             if state.scenario.id != snapshot.scenario.id:
                 return
             pump = self._pump(state, asset_id)
-            pump.state = "transient"
-            pump.state_label = "Reviewing transient"
+            pump.state = "warning"
+            pump.state_label = "Agent reviewing"
             pump.vibration_mm_s = 4.58
             pump.active_run_id = invocation.id
             state.alerts.insert(0, alert)
@@ -386,14 +392,24 @@ class LocalCommandCenterRuntime:
             incident.id,
             RuntimeActivity(
                 category="model_call",
-                title="Classify operating event",
+                title="Model execution",
                 actor="databricks-gpt-5-mini",
                 status="complete",
                 status_label="Completed",
-                summary="Selected the transient-review workflow from current context.",
+                summary=(
+                    "Decision rationale: The threshold pattern requires governed evidence "
+                    "before it can be classified."
+                ),
                 details=[
                     ActivityDatum(label="Input tokens", value="412"),
                     ActivityDatum(label="Output tokens", value="71"),
+                    ActivityDatum(
+                        label="Model output",
+                        value=(
+                            "Decision rationale: The threshold pattern requires governed "
+                            "evidence before it can be classified."
+                        ),
+                    ),
                 ],
             ),
             invocation.id,
@@ -404,7 +420,7 @@ class LocalCommandCenterRuntime:
             incident.id,
             RuntimeActivity(
                 category="tool_call",
-                title="Compare operating envelope",
+                title="assess_failure_risk",
                 actor="asset-context · governed MCP",
                 status="complete",
                 status_label="ALLOW",
@@ -436,11 +452,24 @@ class LocalCommandCenterRuntime:
                 ConversationTurn(
                     role="agent",
                     content=(
-                        "**Finding:** Normal operating transient.\n"
-                        "**Evidence:** Vibration returned to its expected envelope within 38 "
-                        "seconds.\n**Risk:** No evidence of developing mechanical failure.\n"
-                        "**Action:** No maintenance action required."
+                        "- **Finding:** Normal operating transient.\n"
+                        "- **Evidence:** Vibration returned to its expected envelope within 38 "
+                        "seconds.\n- **Risk:** No evidence of developing mechanical failure.\n"
+                        "- **Action:** No maintenance action required."
                     ),
+                )
+            )
+            current.activities.append(
+                RuntimeActivity(
+                    category="model_call",
+                    title="Final response",
+                    actor="databricks-gpt-5-mini",
+                    status="complete",
+                    status_label="Completed",
+                    summary=current.conversation[-1].content,
+                    details=[
+                        ActivityDatum(label="Model output", value=current.conversation[-1].content)
+                    ],
                 )
             )
             current.updated_at = utc_now()
@@ -468,14 +497,24 @@ class LocalCommandCenterRuntime:
             (
                 RuntimeActivity(
                     category="model_call",
-                    title="Route reliability investigation",
+                    title="Model execution",
                     actor="databricks-gpt-5-mini",
                     status="complete",
                     status_label="Completed",
-                    summary="Selected an asset-risk investigation from the observed condition.",
+                    summary=(
+                        "Decision rationale: The sustained threshold crossing requires current "
+                        "telemetry and maintenance evidence."
+                    ),
                     details=[
                         ActivityDatum(label="Input tokens", value="536"),
                         ActivityDatum(label="Output tokens", value="82"),
+                        ActivityDatum(
+                            label="Model output",
+                            value=(
+                                "Decision rationale: The sustained threshold crossing requires "
+                                "current telemetry and maintenance evidence."
+                            ),
+                        ),
                     ],
                 ),
                 (536, 82, 0.0031),
@@ -484,7 +523,7 @@ class LocalCommandCenterRuntime:
             (
                 RuntimeActivity(
                     category="skill",
-                    title="Load rotating-equipment analysis",
+                    title="reliability-investigation",
                     actor="reliability-investigation",
                     status="complete",
                     status_label="Loaded",
@@ -496,7 +535,7 @@ class LocalCommandCenterRuntime:
             (
                 RuntimeActivity(
                     category="tool_call",
-                    title="Read recent telemetry and maintenance context",
+                    title="get_asset_telemetry",
                     actor="asset-context · governed MCP",
                     status="complete",
                     status_label="ALLOW",
@@ -512,14 +551,24 @@ class LocalCommandCenterRuntime:
             (
                 RuntimeActivity(
                     category="model_call",
-                    title="Assess failure risk",
+                    title="Model execution",
                     actor="databricks-claude-sonnet-4-5",
                     status="complete",
                     status_label="Completed",
-                    summary="High likelihood of failure before the next maintenance window.",
+                    summary=(
+                        "Decision rationale: The correlated evidence warrants a formal failure "
+                        "risk assessment."
+                    ),
                     details=[
                         ActivityDatum(label="Input tokens", value="1,184"),
                         ActivityDatum(label="Output tokens", value="214"),
+                        ActivityDatum(
+                            label="Model output",
+                            value=(
+                                "Decision rationale: The correlated evidence warrants a formal "
+                                "failure risk assessment."
+                            ),
+                        ),
                         ActivityDatum(label="Risk estimate", value="87%"),
                     ],
                 ),
@@ -529,7 +578,7 @@ class LocalCommandCenterRuntime:
             (
                 RuntimeActivity(
                     category="tool_call",
-                    title="Prepare bearing replacement plan",
+                    title="prepare_work_order",
                     actor="maintenance-planning · governed MCP",
                     status="complete",
                     status_label="ALLOW",
@@ -557,7 +606,7 @@ class LocalCommandCenterRuntime:
         await self._sleep()
         waiting = RuntimeActivity(
             category="tool_call",
-            title="Schedule maintenance work order",
+            title="submit_work_order",
             actor="maintenance-actions · governed MCP",
             status="waiting",
             status_label="ASK · Not executed",
@@ -591,12 +640,26 @@ class LocalCommandCenterRuntime:
                 ConversationTurn(
                     role="agent",
                     content=(
-                        "**Finding:** Persistent drive-end bearing vibration excursion.\n"
-                        "**Evidence:** Vibration reached 5.2 mm/s and continued rising.\n"
-                        "**Risk:** 87% likelihood of failure before the next maintenance window.\n"
-                        "**Action:** Bearing-replacement work order prepared; submission is "
+                        "- **Finding:** Persistent drive-end bearing vibration excursion.\n"
+                        "- **Evidence:** Vibration reached 5.2 mm/s and continued rising.\n"
+                        "- **Risk:** 87% likelihood of failure before the next maintenance "
+                        "window.\n"
+                        "- **Action:** Bearing-replacement work order prepared; submission is "
                         "waiting for approval."
                     ),
+                )
+            )
+            current.activities.append(
+                RuntimeActivity(
+                    category="model_call",
+                    title="Final response",
+                    actor="databricks-claude-sonnet-4-5",
+                    status="complete",
+                    status_label="Completed",
+                    summary=current.conversation[-1].content,
+                    details=[
+                        ActivityDatum(label="Model output", value=current.conversation[-1].content)
+                    ],
                 )
             )
             alert = next(item for item in state.alerts if item.id == alert_id)
