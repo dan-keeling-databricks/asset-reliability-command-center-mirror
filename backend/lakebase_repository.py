@@ -883,8 +883,6 @@ class LakebaseCommandCenterRepository:
                     ).format(self.table("agent_runs")),
                     (incident_id,),
                 )
-        await self.append_conversation(incident_id, "agent", summary)
-
     async def fail_incident(self, incident_id: str, error: str) -> None:
         async with self._pool.connection() as connection:
             async with connection.transaction():
