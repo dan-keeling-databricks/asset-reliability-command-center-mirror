@@ -1,4 +1,6 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type {
   AlertSummary,
   DashboardSnapshot,
@@ -67,13 +69,37 @@ function EventIcon({ category }: { category: string }) {
   return <span className={`event-icon icon-${category}`}>{EVENT_ICONS[category] ?? "·"}</span>;
 }
 
+function MarkdownContent({ content }: { content: string }) {
+  return (
+    <Markdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        a: ({ children, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer">{children}</a>
+      }}
+    >
+      {content}
+    </Markdown>
+  );
+}
+
 function AgentMessage({ content }: { content: string }) {
+  const fields = content.split("\n").map((line) =>
+    line.match(/^-?\s*\*\*(Finding|Evidence|Risk|Action):\*\*\s*(.*)$/)
+  );
+  const isTerminalResponse = fields.length === 4
+    && fields.every((field, index) => field?.[1] === ["Finding", "Evidence", "Risk", "Action"][index]);
+
+  if (!isTerminalResponse) {
+    return (
+      <div className="markdown-message">
+        <MarkdownContent content={content} />
+      </div>
+    );
+  }
+
   return (
     <div className="structured-message">
-      {content.split("\n").map((line, index) => {
-        const match = line.match(/^-?\s*\*\*(Finding|Evidence|Risk|Action):\*\*\s*(.*)$/);
-        return match ? <p key={index}><strong>{match[1]}</strong><span>{match[2]}</span></p> : <p key={index}>{line}</p>;
-      })}
+      {fields.map((field) => <div className="structured-field" key={field![1]}><strong>{field![1]}</strong><div className="structured-value"><MarkdownContent content={field![2]} /></div></div>)}
     </div>
   );
 }
@@ -91,6 +117,7 @@ function App() {
   const [incidentView, setIncidentView] = useState<"conversation" | "timeline">("conversation");
   const [menuOpen, setMenuOpen] = useState(false);
   const [followUp, setFollowUp] = useState("");
+  const [followUpPending, setFollowUpPending] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedOperator, setSelectedOperator] = useState("");
@@ -144,7 +171,7 @@ function App() {
   useEffect(() => {
     const conversation = conversationRef.current;
     if (conversation && incidentView === "conversation") conversation.scrollTop = conversation.scrollHeight;
-  }, [incident?.activities.length, incident?.conversation.length, incidentView]);
+  }, [incident?.activities.length, incident?.conversation.length, incidentView, followUpPending]);
 
   useEffect(() => {
     const operatorEmail = snapshot?.shift_operator.operator?.email;
@@ -250,8 +277,10 @@ function App() {
 
   const submitFollowUp = async (event: FormEvent) => {
     event.preventDefault();
-    if (!selectedIncidentId || !followUp.trim()) return;
+    if (!selectedIncidentId || !followUp.trim() || !isOperator || followUpPending) return;
     setBusy(true);
+    setFollowUpPending(true);
+    setError(null);
     try {
       await jsonRequest(`/api/incidents/${selectedIncidentId}/follow-up`, {
         method: "POST",
@@ -263,6 +292,7 @@ function App() {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Follow-up failed");
     } finally {
+      setFollowUpPending(false);
       setBusy(false);
     }
   };
@@ -351,8 +381,9 @@ function App() {
               {incidentView === "conversation" ? <div className="unified-conversation" ref={conversationRef}>
                 {!conversationItems.length && <div className="timeline-empty"><i />Waiting for the first runtime event…</div>}
                 {conversationItems.map((item) => item.kind === "activity" ? <ActivityCard key={item.activity.id} activity={item.activity} busy={busy} runAction={runAction} /> : <article className={`chat-event chat-${item.turn.role}`} key={item.turn.id}><EventIcon category={item.turn.role} /><div><div className="chat-meta"><strong>{item.turn.role === "operator" ? "You" : "Final response"}</strong><time>{timeLabel(item.turn.created_at)}</time></div>{item.turn.role === "agent" ? <AgentMessage content={item.turn.content} /> : <p>{item.turn.content}</p>}</div></article>)}
+                {followUpPending && <div className="agent-active follow-up-status" role="status" aria-live="polite"><div className="agent-orbit" aria-hidden="true"><i /></div><div><strong>Follow-up in progress</strong><span>Agent is working on a response</span></div></div>}
               </div> : <ExecutionTimeline activities={incident.activities} />}
-              <form className="follow-up" onSubmit={submitFollowUp}><label htmlFor="follow-up">Ask a follow-up</label><div><input id="follow-up" value={followUp} onChange={(event) => setFollowUp(event.target.value)} placeholder="Ask about evidence, risk, or the response…" disabled={busy} /><button disabled={busy || !followUp.trim()}>Send</button></div></form>
+              <form className="follow-up" onSubmit={submitFollowUp}><label htmlFor="follow-up">Ask a follow-up</label><div><input id="follow-up" value={followUp} onChange={(event) => setFollowUp(event.target.value)} placeholder={isOperator ? "Ask about evidence, risk, or the response…" : "Only the current operator can ask follow-ups"} disabled={!isOperator || busy || followUpPending} /><button disabled={!isOperator || busy || followUpPending || !followUp.trim()}>Send</button></div></form>
             </div>
             <footer className="incident-footer"><div><span>Total tokens</span><strong>{(incident.totals.input_tokens + incident.totals.output_tokens).toLocaleString()}</strong></div><div><span>Estimated cost</span><strong>${incident.totals.estimated_cost_usd.toFixed(4)}</strong></div><div><span>Tool calls</span><strong>{incident.totals.tool_calls}</strong></div><button onClick={() => setSelectedIncidentId(null)}>Close review</button></footer>
           </>}

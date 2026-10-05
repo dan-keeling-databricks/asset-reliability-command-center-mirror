@@ -24,6 +24,7 @@ existing `classic_stable_realtime_demos_catalog` and the dedicated
 | Agent | Fall back safely when model rationale formatting remains unusable | Complete |
 | UI | Build the live fleet command center, agent-active cues, alerts, and invocation history | Complete |
 | UI | Build the two-pane incident overlay, follow-up input, dynamic activity timeline, and footer totals | Complete |
+| UI | Render follow-up Markdown at full width and show an accessible in-progress response state | Complete |
 | Quality | Pass Ruff, six pytest tests, TypeScript checking, and the Vite production build | Complete |
 | Quality | Validate desktop and 1280×800 remote layouts with no console or network errors | Complete |
 | Quality | Validate concurrent normal-transient reviews and retained no-action history | Complete |
