@@ -182,7 +182,7 @@ async def test_post_approval_model_failure_uses_one_strict_fallback() -> None:
     runtime = ProductionCommandCenterRuntime.__new__(ProductionCommandCenterRuntime)
     runtime.settings = SimpleNamespace(primary_model_endpoint="primary-model")
     runtime.model = SimpleNamespace(turn=AsyncMock(side_effect=RuntimeError("model unavailable")))
-    runtime.repository = SimpleNamespace(append_conversation=AsyncMock())
+    runtime.repository = SimpleNamespace(append_activity=AsyncMock())
     incident = IncidentDetail(
         scenario_id="scenario-1",
         asset_id="P-204",
@@ -197,11 +197,10 @@ async def test_post_approval_model_failure_uses_one_strict_fallback() -> None:
         {"result": {"structuredContent": {"work_order_id": "WO-10482"}}},
     )
 
-    runtime.repository.append_conversation.assert_awaited_once()
-    role, content = runtime.repository.append_conversation.await_args.args[1:]
-    assert role == "agent"
-    assert _valid_terminal_response(content)
-    assert "WO-10482" in content
+    activity = runtime.repository.append_activity.await_args.args[1]
+    assert activity.category == "runtime"
+    assert _valid_terminal_response(activity.summary)
+    assert "WO-10482" in activity.summary
 
 
 def terminal_content(action: str = "Maintenance scheduled.") -> str:
@@ -251,9 +250,7 @@ async def test_valid_terminal_model_output_is_persisted_once_in_activity() -> No
 
     activities = [call.args[1] for call in runtime.repository.append_activity.await_args_list]
     assert [activity.summary for activity in activities] == [content]
-    runtime.repository.append_conversation.assert_awaited_once_with(
-        "incident-1", "agent", content
-    )
+    runtime.repository.append_conversation.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -286,9 +283,7 @@ async def test_corrected_terminal_preserves_both_real_model_outputs() -> None:
 
     activities = [call.args[1] for call in runtime.repository.append_activity.await_args_list]
     assert [activity.summary for activity in activities] == [malformed, corrected]
-    runtime.repository.append_conversation.assert_awaited_once_with(
-        "incident-1", "agent", corrected
-    )
+    runtime.repository.append_conversation.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -321,6 +316,9 @@ async def test_follow_up_persists_exact_model_output_and_tokens() -> None:
     assert activity.title == "Model execution"
     assert activity.summary == "**WO-1** is scheduled."
     assert runtime.repository.append_activity.await_args.kwargs["tokens"][:2] == (20, 5)
+    runtime.repository.append_conversation.assert_awaited_once_with(
+        "incident-1", "operator", "What happened?"
+    )
 
 
 def test_tool_selection_protocol_accepts_only_decision_rationale() -> None:

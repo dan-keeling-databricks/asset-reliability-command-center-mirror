@@ -144,20 +144,6 @@ def create_app(
         detail = await repository.incident(incident_id)
         if not detail:
             raise HTTPException(status_code=404, detail="Incident not found")
-        model_outputs = {
-            activity.summary
-            for activity in detail.activities
-            if activity.category == "model_call" and activity.summary
-        }
-        detail = detail.model_copy(
-            update={
-                "conversation": [
-                    turn
-                    for turn in detail.conversation
-                    if turn.role != "agent" or turn.content not in model_outputs
-                ]
-            }
-        )
         return detail.model_dump(mode="json")
 
     @app.post(

@@ -289,7 +289,6 @@ class LocalCommandCenterRuntime:
                     ],
                 )
             )
-            current.conversation.append(ConversationTurn(role="agent", content=conclusion))
             current.totals.input_tokens += 684
             current.totals.output_tokens += 96
             current.totals.estimated_cost_usd = round(
@@ -346,7 +345,6 @@ class LocalCommandCenterRuntime:
             current.conversation.extend(
                 [
                     ConversationTurn(role="operator", content=message),
-                    ConversationTurn(role="agent", content=answer),
                 ]
             )
             current.activities.append(
@@ -506,16 +504,11 @@ class LocalCommandCenterRuntime:
                     "No maintenance action is required.",
                 ]
             )
-            current.conversation.append(
-                ConversationTurn(
-                    role="agent",
-                    content=(
-                        "- **Finding:** Normal operating transient.\n"
-                        "- **Evidence:** Vibration returned to its expected envelope within 38 "
-                        "seconds.\n- **Risk:** No evidence of developing mechanical failure.\n"
-                        "- **Action:** No maintenance action required."
-                    ),
-                )
+            conclusion = (
+                "- **Finding:** Normal operating transient.\n"
+                "- **Evidence:** Vibration returned to its expected envelope within 38 "
+                "seconds.\n- **Risk:** No evidence of developing mechanical failure.\n"
+                "- **Action:** No maintenance action required."
             )
             current.activities.append(
                 RuntimeActivity(
@@ -524,9 +517,9 @@ class LocalCommandCenterRuntime:
                     actor="databricks-gpt-5-mini",
                     status="complete",
                     status_label="Completed",
-                    summary=current.conversation[-1].content,
+                    summary=conclusion,
                     details=[
-                        ActivityDatum(label="Model output", value=current.conversation[-1].content)
+                        ActivityDatum(label="Model output", value=conclusion)
                     ],
                 )
             )

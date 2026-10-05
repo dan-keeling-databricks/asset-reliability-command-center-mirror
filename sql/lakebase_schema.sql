@@ -222,6 +222,16 @@ CREATE TABLE IF NOT EXISTS asset_reliability.conversation_messages (
 CREATE INDEX IF NOT EXISTS conversation_messages_incident_sequence_idx
     ON asset_reliability.conversation_messages (incident_id, sequence);
 
+-- Model output is canonical in activity_events. Remove legacy copies that predate the
+-- single-source response model while retaining operator and deterministic runtime messages.
+DELETE FROM asset_reliability.conversation_messages AS message
+USING asset_reliability.agent_runs AS run, asset_reliability.activity_events AS activity
+WHERE message.incident_id = run.incident_id
+  AND activity.run_id = run.run_id
+  AND message.role = 'agent'
+  AND activity.event_type = 'model_call'
+  AND activity.runtime_metadata ->> 'summary' = message.content;
+
 CREATE TABLE IF NOT EXISTS asset_reliability.work_orders (
     work_order_id TEXT PRIMARY KEY,
     incident_id UUID NOT NULL UNIQUE REFERENCES asset_reliability.incidents(incident_id),

@@ -107,7 +107,7 @@ concurrently. OBO tokens remain in process memory; only identity subjects are pe
 | `incidents` | Alert lifecycle and business resolution |
 | `agent_runs` | Agent status, approval request, token/cost/tool totals |
 | `activity_events` | Ordered runtime-emitted timeline |
-| `conversation_messages` | Agent/operator follow-up conversation |
+| `conversation_messages` | Operator follow-up messages and non-model runtime fallbacks |
 | `work_orders` | Governed maintenance result |
 | `run_identities` | Persisted user subject audit metadata, never tokens |
 | `component_heartbeats` | Producer health and acknowledged message count |
@@ -117,9 +117,10 @@ concurrently. OBO tokens remain in process memory; only identity subjects are pe
 
 Uniqueness constraints prevent duplicate active scenarios, commands, incidents, events, and
 work orders. Database notifications are hints; canonical state always comes from tables.
-Model text is persisted in its runtime activity and rendered once through the activity Output
-card. Conversation messages remain persisted for context and audit; the conversation UI omits
-an agent turn only when its exact content is already present in a model activity.
+Model text has one source of truth: its runtime activity, rendered through the activity Output
+card and retained with its timing, token, and cost metadata. Operator follow-ups remain in
+`conversation_messages`; deterministic fallbacks are explicit runtime activities. Startup
+migration removes legacy agent-message copies whose content already exists in a model activity.
 
 ## Bounded read and retention design
 

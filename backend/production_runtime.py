@@ -158,7 +158,6 @@ class ProductionCommandCenterRuntime:
             token=None,
         )
         completed_at = utc_now()
-        await self.repository.append_conversation(incident_id, "agent", result.content)
         await self.repository.append_activity(
             incident_id,
             RuntimeActivity(
@@ -403,12 +402,10 @@ class ProductionCommandCenterRuntime:
                         )
                         continue
                     if last_risk and last_risk.get("risk_band") != "high":
-                        final_content = canonical_terminal or await self._ensure_terminal_response(
-                            incident_id, endpoint, messages, summary
-                        )
-                        await self.repository.append_conversation(
-                            incident_id, "agent", final_content
-                        )
+                        if not canonical_terminal:
+                            await self._ensure_terminal_response(
+                                incident_id, endpoint, messages, summary
+                            )
                         await self.repository.resolve_no_action(incident_id)
                         return
                     raise RuntimeError(
@@ -618,8 +615,8 @@ class ProductionCommandCenterRuntime:
         try:
             turn = await self.model.turn(self.settings.primary_model_endpoint, messages)
         except Exception:  # The executed governed write must still receive a conclusion.
-            await self.repository.append_conversation(
-                incident_id, "agent", _fallback_terminal_response(incident, result)
+            await self._append_fallback_response(
+                incident_id, _fallback_terminal_response(incident, result)
             )
             return
         completed_at = utc_now()
@@ -648,15 +645,31 @@ class ProductionCommandCenterRuntime:
             ),
         )
         try:
-            final_content = canonical or await self._ensure_terminal_response(
+            canonical or await self._ensure_terminal_response(
                 incident_id,
                 self.settings.primary_model_endpoint,
                 [*messages, turn.message],
                 content,
             )
         except Exception:
-            final_content = _fallback_terminal_response(incident, result)
-        await self.repository.append_conversation(incident_id, "agent", final_content)
+            await self._append_fallback_response(
+                incident_id, _fallback_terminal_response(incident, result)
+            )
+
+    async def _append_fallback_response(self, incident_id: str, content: str) -> None:
+        now = utc_now()
+        await self.repository.append_activity(
+            incident_id,
+            RuntimeActivity(
+                category="runtime",
+                title="Deterministic response",
+                status="complete",
+                status_label="Completed",
+                summary=content,
+                started_at=now,
+                completed_at=now,
+            ),
+        )
 
     async def _ensure_terminal_response(
         self,
