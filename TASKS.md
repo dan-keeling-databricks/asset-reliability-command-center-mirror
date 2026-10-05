@@ -20,6 +20,7 @@ existing `classic_stable_realtime_demos_catalog` and the dedicated
 | Governance | Expose four business tools through Unity Gateway MCP | Complete |
 | Governance | Attach native `ASK` policy to `submit_work_order` and preserve the real approval handoff | Complete |
 | Governance | Keep `ASK` as a pure pause and emit one conclusion only after successful replay | Complete |
+| Governance | Show the configured MCP service name and runtime-discovered tools in a two-column activity card | Complete on `feat/mcp_discovery_card` |
 | Agent | Require prospective, tool-specific decision rationales before execution | Complete |
 | Agent | Fall back safely when model rationale formatting remains unusable | Complete |
 | UI | Build the live fleet command center, agent-active cues, alerts, and invocation history | Complete |

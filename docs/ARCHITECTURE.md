@@ -73,8 +73,9 @@ Lakeflow Declarative Pipelines Real-Time Mode. RTM ingestion owns no alert or ag
    incident/run per scenario, pump, and rule.
 2. A machine-authored prompt supplies the asset, observed condition, threshold, timestamp,
    incident identifier, and maintenance objective. The presenter does not type it.
-3. The runtime loads the governed UC Skill and discovers the current MCP tool surface. Only
-   then are skill, server, model, and tool events persisted for the UI.
+3. The runtime loads the governed UC Skill, calls `tools/list` on the single configured Unity
+   Gateway MCP endpoint, and persists the returned tool inventory with the MCP activity. It
+   does not enumerate MCP servers or expose the endpoint URL in the UI.
 4. GPT-5.1 selects initial evidence actions. A high-risk result routes subsequent reasoning
    to Sonnet 4.5. Tool-selection rationales receive one model correction attempt; if its
    presentation remains unusable, the runtime emits a deterministic prospective rationale

@@ -88,10 +88,25 @@ async def test_unusable_rationale_falls_back_and_selected_tool_executes(
         list_tools=AsyncMock(
             return_value=[
                 {
+                    "name": "get_asset_telemetry",
+                    "description": "Read recent telemetry",
+                    "inputSchema": {"type": "object"},
+                },
+                {
+                    "name": "assess_failure_risk",
+                    "description": "Assess failure risk",
+                    "inputSchema": {"type": "object"},
+                },
+                {
+                    "name": "prepare_work_order",
+                    "description": "Prepare maintenance work",
+                    "inputSchema": {"type": "object"},
+                },
+                {
                     "name": "submit_work_order",
                     "description": "Submit approved maintenance",
                     "inputSchema": {"type": "object"},
-                }
+                },
             ]
         ),
         call_tool=AsyncMock(
@@ -116,6 +131,18 @@ async def test_unusable_rationale_falls_back_and_selected_tool_executes(
     assert [(detail.label, detail.value) for detail in rationale_activity.details[:2]] == [
         ("Input tokens", str(expected_tokens[0])),
         ("Output tokens", str(expected_tokens[1])),
+    ]
+    discovery_activity = next(
+        call.args[1]
+        for call in runtime.repository.append_activity.await_args_list
+        if call.args[1].category == "mcp"
+    )
+    assert discovery_activity.actor == "asset_reliability_mcp"
+    assert [(detail.label, detail.value) for detail in discovery_activity.details] == [
+        (
+            "Available",
+            "assess_failure_risk\nget_asset_telemetry\nprepare_work_order\nsubmit_work_order",
+        )
     ]
 
 
