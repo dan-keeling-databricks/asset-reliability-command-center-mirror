@@ -131,6 +131,16 @@ def test_retention_series_discovery_never_scans_telemetry() -> None:
     assert "EXISTS" not in query
 
 
+def test_threshold_evaluation_is_scoped_to_identity_scenario() -> None:
+    repository = LakebaseCommandCenterRepository.__new__(LakebaseCommandCenterRepository)
+    repository.schema = "asset_reliability"
+
+    query = repository._threshold_candidates_query().as_string().upper()
+
+    assert "SCENARIO.SCENARIO_ID = %S::UUID" in query
+    assert "SCENARIO.STATUS = 'ACTIVE'" in query
+
+
 class FakeResult:
     def __init__(self, rows: list[dict[str, float]]) -> None:
         self._rows = rows

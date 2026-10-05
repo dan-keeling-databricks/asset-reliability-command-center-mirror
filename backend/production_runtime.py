@@ -150,11 +150,10 @@ class ProductionCommandCenterRuntime:
         while True:
             await asyncio.sleep(self.settings.alert_evaluator_interval_seconds)
             try:
-                if not self._identity_scenario_id or not self.identities.get(
-                    self._identity_scenario_id
-                ):
+                scenario_id = self._identity_scenario_id
+                if not scenario_id or not self.identities.get(scenario_id):
                     continue
-                for incident_id, run_id in await self.repository.evaluate_thresholds():
+                for incident_id, run_id in await self.repository.evaluate_thresholds(scenario_id):
                     incident = await self.repository.incident(incident_id)
                     if not incident:
                         continue

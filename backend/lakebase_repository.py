@@ -716,26 +716,27 @@ class LakebaseCommandCenterRepository:
         except psycopg.errors.UniqueViolation as exc:
             raise ValueError("P-204 excursion already queued for this scenario") from exc
 
-    async def evaluate_thresholds(self) -> list[tuple[str, str]]:
+    def _threshold_candidates_query(self) -> sql.Composed:
+        return sql.SQL(
+            """SELECT scenario.scenario_id, live.pump_id, live.vibration_mm_s,
+            live.event_time, rule.rule_id, rule.warning_threshold
+            FROM {} scenario JOIN {} live
+              ON live.scenario_id = scenario.scenario_id::text
+            JOIN {} rule ON rule.rule_id = 'bearing-vibration-warning'
+            WHERE scenario.status = 'active' AND scenario.scenario_id = %s::uuid
+              AND rule.enabled AND live.vibration_mm_s >= rule.warning_threshold"""
+        ).format(
+            self.table("scenario_runs"),
+            self.table("pump_live_state"),
+            self.table("alert_rules"),
+        )
+
+    async def evaluate_thresholds(self, scenario_id: str) -> list[tuple[str, str]]:
         created: list[tuple[str, str]] = []
         async with self._pool.connection() as connection:
             async with connection.transaction():
                 candidates = await (
-                    await connection.execute(
-                        sql.SQL(
-                            """SELECT scenario.scenario_id, live.pump_id, live.vibration_mm_s,
-                            live.event_time, rule.rule_id, rule.warning_threshold
-                            FROM {} scenario JOIN {} live
-                              ON live.scenario_id = scenario.scenario_id::text
-                            JOIN {} rule ON rule.rule_id = 'bearing-vibration-warning'
-                            WHERE scenario.status = 'active' AND rule.enabled
-                              AND live.vibration_mm_s >= rule.warning_threshold"""
-                        ).format(
-                            self.table("scenario_runs"),
-                            self.table("pump_live_state"),
-                            self.table("alert_rules"),
-                        )
-                    )
+                    await connection.execute(self._threshold_candidates_query(), (scenario_id,))
                 ).fetchall()
                 for candidate in candidates:
                     incident_id, run_id = uuid4(), uuid4()
