@@ -8,7 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from backend.gateway import GatewayAsk, GovernedGatewayClient
-from backend.identity import OboIdentityRegistry
+from backend.identity import OboIdentity, OboIdentityRegistry
 from backend.lakebase_repository import LakebaseCommandCenterRepository
 from backend.model_client import DatabricksModelClient
 from backend.models import (
@@ -170,7 +170,7 @@ class ProductionCommandCenterRuntime:
             incident = await self.repository.incident(incident_id)
             if not incident:
                 return
-            identity = self.identities.get(incident.scenario_id)
+            identity = await self._wait_for_identity(incident.scenario_id)
             if not identity:
                 raise RuntimeError("No in-memory OBO identity is available for this scenario")
 
@@ -260,34 +260,60 @@ class ProductionCommandCenterRuntime:
                 turn_completed_at = utc_now()
                 tool_calls = turn.message.get("tool_calls", [])
                 summary = str(turn.message.get("content") or "")
+                input_tokens = turn.input_tokens
+                output_tokens = turn.output_tokens
                 if tool_calls and not _valid_decision_rationale(summary):
-                    raise RuntimeError("Model tool-selection output violated the response protocol")
-                terminal_response = not tool_calls and not (
-                    last_risk
-                    and last_risk.get("risk_band") == "high"
-                    and not action_continuation_requested
-                )
+                    rationale = await self.model.turn(
+                        endpoint,
+                        [
+                            {
+                                "role": "system",
+                                "content": (
+                                    "Return exactly `Decision rationale: <one or two concise "
+                                    "sentences>` with no heading, bullets, or additional prose."
+                                ),
+                            },
+                            {
+                                "role": "user",
+                                "content": (
+                                    "Explain the evidence-based reason for the selected governed "
+                                    "tool call(s). Selected calls: "
+                                    f"{json.dumps(tool_calls)}. Recent context: "
+                                    f"{json.dumps(messages[-3:])}"
+                                ),
+                            },
+                        ],
+                    )
+                    summary = str(rationale.message.get("content") or "")
+                    input_tokens += rationale.input_tokens
+                    output_tokens += rationale.output_tokens
+                    turn_completed_at = utc_now()
+                    if not _valid_decision_rationale(summary):
+                        raise RuntimeError(
+                            "Model tool-selection output violated the response protocol after "
+                            "rationale correction"
+                        )
                 await self.repository.append_activity(
                     incident_id,
                     RuntimeActivity(
                         category="model_call",
-                        title="Final response" if terminal_response else "Model execution",
+                        title="Model execution",
                         actor=endpoint,
                         status="complete",
                         status_label="Completed",
                         summary=summary,
                         details=[
-                            ActivityDatum(label="Input tokens", value=str(turn.input_tokens)),
-                            ActivityDatum(label="Output tokens", value=str(turn.output_tokens)),
+                            ActivityDatum(label="Input tokens", value=str(input_tokens)),
+                            ActivityDatum(label="Output tokens", value=str(output_tokens)),
                             ActivityDatum(label="Model output", value=summary),
                         ],
                         started_at=turn_started_at,
                         completed_at=turn_completed_at,
                     ),
                     tokens=(
-                        turn.input_tokens,
-                        turn.output_tokens,
-                        self._model_cost(turn.input_tokens, turn.output_tokens),
+                        input_tokens,
+                        output_tokens,
+                        self._model_cost(input_tokens, output_tokens),
                     ),
                 )
                 messages.append(turn.message)
@@ -398,6 +424,15 @@ class ProductionCommandCenterRuntime:
                 ),
             )
             await self.repository.fail_incident(incident_id, str(exc))
+
+    async def _wait_for_identity(self, scenario_id: str) -> OboIdentity | None:
+        """Allow a local hot reload's next dashboard poll to restore process-local OBO state."""
+        for _ in range(60):
+            identity = self.identities.get(scenario_id)
+            if identity:
+                return identity
+            await asyncio.sleep(0.5)
+        return None
 
     async def _pause_for_gateway(
         self, incident_id: str, tool_name: str, ask: GatewayAsk, *, started_at: datetime
@@ -526,7 +561,7 @@ class ProductionCommandCenterRuntime:
             incident_id,
             RuntimeActivity(
                 category="model_call",
-                title="Final response",
+                title="Model execution",
                 actor=endpoint,
                 status="complete",
                 status_label="Completed",

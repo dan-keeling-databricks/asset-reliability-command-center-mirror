@@ -226,7 +226,8 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .command-center h1 { font-size: calc(20px * var(--font-scale)); }
 .command-center h2 { font-size: calc(18px * var(--font-scale)); }
 .command-center h3 { font-size: calc(15px * var(--font-scale)); }
-.pump-signal strong { font-size: calc(20px * var(--font-scale)) !important; }
+.command-center .pump-card-head > div > strong { font-size: calc(18px * var(--font-scale)) !important; }
+.pump-signal strong { font-size: calc(22px * var(--font-scale)) !important; }
 .brand-lockup, .latency-panel, .primary-tabs, .fleet-section, .history-page, .incident-review { min-width: 0; }
 
 .demo-menu { width: min(310px, calc(100vw - 32px)); }
@@ -255,6 +256,10 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .runtime-status-running { color: #5d4db7; background: #efecff; }
 .runtime-status-waiting { color: #8c5a00; background: #fff3d0; }
 .runtime-status-failed { color: var(--red); background: var(--red-soft); }
+.event-output { margin-top: 9px; padding: 9px 10px; border: 1px solid #e2e2de; border-radius: 7px; background: #fafaf8; }
+.event-output > strong { display: block; color: #77777e; font-size: calc(12px * var(--font-scale)) !important; letter-spacing: .07em; text-transform: uppercase; }
+.event-output .structured-message p { grid-template-columns: 72px minmax(0, 1fr); }
+.event-output .structured-message p:only-child { display: block; }
 
 .execution-view { overflow: visible auto; }
 .execution-scale { max-width: none; padding: 0 14px 0 110px; }
@@ -263,11 +268,15 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .gantt-lane .execution-track { min-width: 900px; overflow: visible; transition: height .16s ease; }
 .gantt-lane .execution-bar { min-width: 8px; height: 20px; cursor: help; transition: top .16s ease; }
 .gantt-lane .execution-bar > i { left: calc(100% + 7px); top: 1px; color: #404047; }
+.gantt-lane .category-tool_call > i, .gantt-lane .category-tool_result > i { font-family: "DM Mono", monospace; }
+.runtime-event:has(.icon-tool_call) .event-title strong, .runtime-event:has(.icon-tool_result) .event-title strong { font-family: "DM Mono", monospace; }
 .category-model_call { background: #c8c4ec; }
 .category-skill { background: #efd08b; }
 .category-tool_call, .category-tool_result, .category-mcp { background: #bddde8; }
 .gantt-lane .bar-waiting { width: 18px !important; min-width: 18px; }
 .gantt-popover { position: fixed; z-index: 30; max-height: calc(100vh - 48px); padding: 10px; overflow: auto; border: 1px solid #d4d4cf; border-radius: 11px; background: #fbfbf9; box-shadow: 0 18px 60px rgba(20, 20, 22, .22); }
+.gantt-popover-pinned { border-color: #8c82ca; box-shadow: 0 18px 60px rgba(20, 20, 22, .26), 0 0 0 2px rgba(118, 104, 214, .12); }
+.gantt-popover-pinned::before { content: "Pinned · click outside or press Esc to close"; display: block; margin: 0 0 8px 37px; color: #6559ad; font-size: calc(12px * var(--font-scale)); font-weight: 700; }
 .gantt-popover .chat-event { margin: 0; text-align: left; }
 .gantt-popover .runtime-event .event-content { min-height: 0; }
 

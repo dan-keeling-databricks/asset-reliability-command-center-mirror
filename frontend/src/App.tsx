@@ -71,7 +71,7 @@ function AgentMessage({ content }: { content: string }) {
   return (
     <div className="structured-message">
       {content.split("\n").map((line, index) => {
-        const match = line.match(/^\*\*(Finding|Evidence|Risk|Action):\*\*\s*(.*)$/);
+        const match = line.match(/^-?\s*\*\*(Finding|Evidence|Risk|Action):\*\*\s*(.*)$/);
         return match ? <p key={index}><strong>{match[1]}</strong><span>{match[2]}</span></p> : <p key={index}>{line}</p>;
       })}
     </div>
@@ -314,7 +314,7 @@ function App() {
               <section className="initiating-prompt"><div className="prompt-icon">↗</div><div><strong>Initiating prompt</strong><p>{incident.trigger_prompt}</p></div></section>
               {incidentView === "conversation" ? <div className="unified-conversation" ref={conversationRef}>
                 {!conversationItems.length && <div className="timeline-empty"><i />Waiting for the first runtime event…</div>}
-                {conversationItems.map((item) => item.kind === "activity" ? <ActivityCard key={item.activity.id} activity={item.activity} busy={busy} runAction={runAction} /> : <article className={`chat-event chat-${item.turn.role}`} key={item.turn.id}><EventIcon category={item.turn.role} /><div><div className="chat-meta"><strong>{item.turn.role === "operator" ? "You" : "Reliability agent"}</strong><time>{timeLabel(item.turn.created_at)}</time></div>{item.turn.role === "agent" ? <AgentMessage content={item.turn.content} /> : <p>{item.turn.content}</p>}</div></article>)}
+                {conversationItems.map((item) => item.kind === "activity" ? <ActivityCard key={item.activity.id} activity={item.activity} busy={busy} runAction={runAction} /> : <article className={`chat-event chat-${item.turn.role}`} key={item.turn.id}><EventIcon category={item.turn.role} /><div><div className="chat-meta"><strong>{item.turn.role === "operator" ? "You" : "Final response"}</strong><time>{timeLabel(item.turn.created_at)}</time></div>{item.turn.role === "agent" ? <AgentMessage content={item.turn.content} /> : <p>{item.turn.content}</p>}</div></article>)}
               </div> : <ExecutionTimeline activities={incident.activities} />}
               <form className="follow-up" onSubmit={submitFollowUp}><label htmlFor="follow-up">Ask a follow-up</label><div><input id="follow-up" value={followUp} onChange={(event) => setFollowUp(event.target.value)} placeholder="Ask about evidence, risk, or the response…" disabled={busy} /><button disabled={busy || !followUp.trim()}>Send</button></div></form>
             </div>
@@ -335,14 +335,15 @@ function ActivityCard({ activity, busy, runAction, compact = false }: { activity
   const category = activity.status === "waiting" ? "approval" : activity.category;
   const policy = gatewayDecision(activity);
   const runtimeLabel = { running: "Running", complete: "Completed", waiting: "Waiting", failed: "Failed", info: "Information" }[activity.status];
-  const details = activity.details.filter((detail) => !["decision", "execution", "input tokens", "output tokens"].includes(detail.label.toLowerCase()));
+  const details = activity.details.filter((detail) => !["decision", "execution", "input tokens", "output tokens", "model output"].includes(detail.label.toLowerCase()));
   const tokenTotal = activity.category === "model_call" ? activity.details.filter((detail) => /tokens/i.test(detail.label)).reduce((sum, detail) => sum + Number(detail.value.replaceAll(",", "")), 0) : 0;
-  return <article className={`chat-event runtime-event event-${activity.status} ${compact ? "compact-card" : ""}`}><EventIcon category={category} /><div className="event-content"><div className="event-kicker"><span>{activity.category.replace("_", " ")}</span><time>{timeLabel(activity.emitted_at)}</time></div><div className="event-title"><div><strong>{activity.title}</strong>{activity.actor && <span>{activity.actor}</span>}</div><span className={`runtime-status runtime-status-${activity.status}`}>{runtimeLabel}</span></div>{activity.summary && <p>{activity.summary}</p>}{details.length > 0 && <dl>{details.map((detail) => <div key={`${activity.id}-${detail.label}`}><dt>{detail.label}</dt><dd>{detail.value}</dd></div>)}</dl>}{policy && <section className={`gateway-policy policy-${policy.toLowerCase()}`}><strong>Unity Gateway policy applied</strong><span>{policy}</span><p>{activity.details.find((detail) => detail.label.toLowerCase() === "execution")?.value ?? (policy === "ALLOW" ? "Execution occurred" : "Execution did not occur")}</p></section>}{activity.action && <button className="runtime-action" disabled={busy} onClick={() => void runAction(activity.action!)}>{activity.action.label}</button>}<footer className="event-footer">{tokenTotal > 0 && <span>Total tokens <strong>{tokenTotal.toLocaleString()}</strong></span>}</footer></div></article>;
+  const typeLabel = activity.category === "model_call" ? "Model execution" : activity.category.replace("_", " ");
+  return <article className={`chat-event runtime-event event-${activity.status} ${compact ? "compact-card" : ""}`}><EventIcon category={category} /><div className="event-content"><div className="event-kicker"><span>{typeLabel}</span><time>{timeLabel(activity.emitted_at)}</time></div><div className="event-title"><div><strong>{activity.title}</strong>{activity.actor && <span>{activity.actor}</span>}</div><span className={`runtime-status runtime-status-${activity.status}`}>{runtimeLabel}</span></div>{activity.summary && (activity.category === "model_call" ? <section className="event-output"><strong>Output</strong><AgentMessage content={activity.summary} /></section> : <p>{activity.summary}</p>)}{details.length > 0 && <dl>{details.map((detail) => <div key={`${activity.id}-${detail.label}`}><dt>{detail.label}</dt><dd>{detail.value}</dd></div>)}</dl>}{policy && <section className={`gateway-policy policy-${policy.toLowerCase()}`}><strong>Unity Gateway policy applied</strong><span>{policy}</span><p>{activity.details.find((detail) => detail.label.toLowerCase() === "execution")?.value ?? (policy === "ALLOW" ? "Execution occurred" : "Execution did not occur")}</p></section>}{activity.action && <button className="runtime-action" disabled={busy} onClick={() => void runAction(activity.action!)}>{activity.action.label}</button>}<footer className="event-footer">{tokenTotal > 0 && <span>Total tokens <strong>{tokenTotal.toLocaleString()}</strong></span>}</footer></div></article>;
 }
 
 type TimelineHover = { activity: RuntimeActivity; left: number; top: number; width: number };
 
-function GanttLane({ label, activities, start, range, setHovered }: { label: string; activities: RuntimeActivity[]; start: number; range: number; setHovered: (hover: TimelineHover | null) => void }) {
+function GanttLane({ label, activities, start, range, setHovered, setPinned }: { label: string; activities: RuntimeActivity[]; start: number; range: number; setHovered: (hover: TimelineHover | null) => void; setPinned: (hover: TimelineHover) => void }) {
   const bars = useRef(new Map<string, HTMLDivElement>());
   const [rows, setRows] = useState<Record<string, number>>({});
 
@@ -376,18 +377,41 @@ function GanttLane({ label, activities, start, range, setHovered }: { label: str
       const leftPosition = window.innerWidth - rect.right >= popoverWidth + 20 ? rect.right + 12 : Math.max(24, rect.left - popoverWidth - 12);
       setHovered({ activity, left: leftPosition, top: Math.max(24, Math.min(rect.top, window.innerHeight - 544)), width: popoverWidth });
     };
-    return <div ref={(element) => { if (element) bars.current.set(activity.id, element); else bars.current.delete(activity.id); }} className={`execution-bar category-${activity.category} bar-${activity.status}`} key={activity.id} style={{ left: `${left}%`, width: `${width}%`, top: `${10 + (rows[activity.id] ?? 0) * 34}px` }} tabIndex={0} onMouseEnter={(event) => showCard(event.currentTarget)} onMouseLeave={() => setHovered(null)} onFocus={(event) => showCard(event.currentTarget)} onBlur={() => setHovered(null)}><i>{activity.title}</i></div>;
+    const pinCard = (target: HTMLElement) => {
+      showCard(target);
+      const rect = target.getBoundingClientRect();
+      const popoverWidth = Math.min(700, window.innerWidth - 48);
+      const leftPosition = window.innerWidth - rect.right >= popoverWidth + 20 ? rect.right + 12 : Math.max(24, rect.left - popoverWidth - 12);
+      setPinned({ activity, left: leftPosition, top: Math.max(24, Math.min(rect.top, window.innerHeight - 544)), width: popoverWidth });
+    };
+    return <div ref={(element) => { if (element) bars.current.set(activity.id, element); else bars.current.delete(activity.id); }} className={`execution-bar category-${activity.category} bar-${activity.status}`} key={activity.id} style={{ left: `${left}%`, width: `${width}%`, top: `${10 + (rows[activity.id] ?? 0) * 34}px` }} tabIndex={0} onMouseEnter={(event) => showCard(event.currentTarget)} onMouseLeave={() => setHovered(null)} onFocus={(event) => showCard(event.currentTarget)} onBlur={() => setHovered(null)} onClick={(event) => pinCard(event.currentTarget)}><i>{activity.title}</i></div>;
   })}</div></section>;
 }
 
 function ExecutionTimeline({ activities }: { activities: RuntimeActivity[] }) {
   const [hovered, setHovered] = useState<TimelineHover | null>(null);
+  const [pinned, setPinned] = useState<TimelineHover | null>(null);
+  const visibleCard = pinned ?? hovered;
+  useEffect(() => {
+    if (!pinned) return;
+    const dismiss = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (!target.closest(".gantt-popover") && !target.closest(".execution-bar")) setPinned(null);
+    };
+    const dismissWithKeyboard = (event: KeyboardEvent) => { if (event.key === "Escape") setPinned(null); };
+    document.addEventListener("mousedown", dismiss);
+    document.addEventListener("keydown", dismissWithKeyboard);
+    return () => {
+      document.removeEventListener("mousedown", dismiss);
+      document.removeEventListener("keydown", dismissWithKeyboard);
+    };
+  }, [pinned]);
   const shown = activities.filter((activity) => ["model_call", "skill", "tool_call", "tool_result", "mcp"].includes(activity.category));
   const start = shown.length ? Math.min(...shown.map((activity) => new Date(activity.started_at ?? activity.emitted_at).getTime())) : 0;
   const end = shown.length ? Math.max(...shown.map((activity) => new Date(activity.completed_at ?? activity.emitted_at).getTime()), start + 1000) : start + 1000;
   const range = Math.max(end - start, 1000);
   const lanes = [{ label: "LLM calls", categories: ["model_call"] }, { label: "Skill reads", categories: ["skill"] }, { label: "Tool calls", categories: ["tool_call", "tool_result", "mcp"] }];
-  return <div className="execution-view"><div className="execution-scale"><span>Start</span><span>Agent execution</span><span>Latest event</span></div>{shown.length === 0 ? <div className="timeline-empty">No runtime activity yet.</div> : lanes.map((lane) => <GanttLane key={lane.label} label={lane.label} activities={shown.filter((activity) => lane.categories.includes(activity.category))} start={start} range={range} setHovered={setHovered} />)}{hovered && <div className="gantt-popover" style={{ left: hovered.left, top: hovered.top, width: hovered.width }}><ActivityCard activity={hovered.activity} busy={false} runAction={async () => undefined} compact /></div>}</div>;
+  return <div className="execution-view"><div className="execution-scale"><span>Start</span><span>Agent execution</span><span>Latest event</span></div>{shown.length === 0 ? <div className="timeline-empty">No runtime activity yet.</div> : lanes.map((lane) => <GanttLane key={lane.label} label={lane.label} activities={shown.filter((activity) => lane.categories.includes(activity.category))} start={start} range={range} setHovered={setHovered} setPinned={setPinned} />)}{visibleCard && <div className={`gantt-popover ${pinned ? "gantt-popover-pinned" : ""}`} style={{ left: visibleCard.left, top: visibleCard.top, width: visibleCard.width }}><ActivityCard activity={visibleCard.activity} busy={false} runAction={async () => undefined} compact /></div>}</div>;
 }
 
 export default App;

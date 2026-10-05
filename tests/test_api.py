@@ -109,10 +109,7 @@ def test_trigger_runs_generic_activity_stream_and_waits_for_approval() -> None:
         model_activities = [
             activity for activity in incident["activities"] if activity["category"] == "model_call"
         ]
-        assert {activity["title"] for activity in model_activities} == {
-            "Model execution",
-            "Final response",
-        }
+        assert {activity["title"] for activity in model_activities} == {"Model execution"}
         assert all(
             any(detail["label"] == "Model output" for detail in activity["details"])
             for activity in model_activities

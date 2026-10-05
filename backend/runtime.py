@@ -295,7 +295,7 @@ class LocalCommandCenterRuntime:
             current.activities.append(
                 RuntimeActivity(
                     category="model_call",
-                    title="Final response",
+                    title="Model execution",
                     actor="databricks-claude-sonnet-4-5",
                     status="complete",
                     status_label="Completed",
@@ -462,7 +462,7 @@ class LocalCommandCenterRuntime:
             current.activities.append(
                 RuntimeActivity(
                     category="model_call",
-                    title="Final response",
+                    title="Model execution",
                     actor="databricks-gpt-5-mini",
                     status="complete",
                     status_label="Completed",
@@ -652,7 +652,7 @@ class LocalCommandCenterRuntime:
             current.activities.append(
                 RuntimeActivity(
                     category="model_call",
-                    title="Final response",
+                    title="Model execution",
                     actor="databricks-claude-sonnet-4-5",
                     status="complete",
                     status_label="Completed",

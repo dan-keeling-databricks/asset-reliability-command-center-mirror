@@ -389,9 +389,10 @@ class LakebaseCommandCenterRepository:
             incident_status = row["incident_status"]
             state = "normal"
             state_label = "Normal"
-            if incident_status in {"reviewing", "waiting_approval"}:
-                state = "warning" if row["pump_id"] == "P-204" else "transient"
-                state_label = "Warning" if state == "warning" else "Reviewing transient"
+            if incident_status == "reviewing":
+                state, state_label = "transient", "Agent reviewing"
+            elif incident_status == "waiting_approval":
+                state, state_label = "warning", "Approval required"
             elif incident_status == "maintenance_scheduled":
                 state, state_label = "warning", "Maintenance scheduled"
             ingested = row["ingested_at"]
