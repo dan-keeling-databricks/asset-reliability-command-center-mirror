@@ -6,6 +6,7 @@ runtime-driven agent governance. See [DEMO.md](DEMO.md) for the approved narrati
 ## Documentation
 
 - [Technical architecture](docs/ARCHITECTURE.md)
+- [Interactive architecture and agent governance explainer](docs/interactive-architecture.html)
 - [Manual deployment runbook](docs/DEPLOYMENT.md)
 - [Contribution and branching model](CONTRIBUTING.md)
 - [Repository instructions for coding agents](AGENTS.md)

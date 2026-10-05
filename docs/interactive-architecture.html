@@ -1,0 +1,896 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Interactive end-to-end architecture and agent governance explainer for the Asset Reliability Command Center.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23ff3621'/%3E%3Cpath d='M17 45 29 17h7l12 28h-8l-2-6H27l-2 6Zm13-13h6l-3-9Z' fill='white'/%3E%3C/svg%3E">
+  <title>Asset Reliability Command Center — Interactive Architecture</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #102129;
+      --muted: #586870;
+      --paper: #f6f7f3;
+      --surface: #ffffff;
+      --surface-2: #eef1ec;
+      --line: #d7ddd7;
+      --red: #ff3621;
+      --red-dark: #c82d1c;
+      --navy: #12304a;
+      --blue: #1967d2;
+      --cyan: #007f86;
+      --green: #16825d;
+      --amber: #a65e00;
+      --violet: #7251b5;
+      --shadow: 0 18px 48px rgba(24, 39, 47, .09);
+      --radius: 18px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --sans: Inter, "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 93% 2%, rgba(255, 54, 33, .11), transparent 22rem),
+        radial-gradient(circle at 3% 24%, rgba(0, 127, 134, .08), transparent 26rem),
+        var(--paper);
+      color: var(--ink);
+      font-family: var(--sans);
+      line-height: 1.55;
+    }
+    button, select { font: inherit; }
+    button { color: inherit; }
+    a { color: var(--blue); }
+    code { font-family: var(--mono); font-size: .88em; }
+
+    .progress {
+      position: fixed;
+      inset: 0 0 auto;
+      z-index: 100;
+      height: 3px;
+      background: linear-gradient(90deg, var(--red), #ff8a4c);
+      transform: scaleX(0);
+      transform-origin: left;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 80;
+      backdrop-filter: blur(18px);
+      background: rgba(246, 247, 243, .88);
+      border-bottom: 1px solid rgba(16, 33, 41, .08);
+    }
+    .topbar-inner {
+      width: min(1420px, calc(100% - 40px));
+      height: 64px;
+      margin: auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      min-width: max-content;
+      font-weight: 760;
+      letter-spacing: -.02em;
+    }
+    .brand-mark {
+      width: 29px;
+      height: 29px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      background: var(--red);
+      box-shadow: 0 7px 18px rgba(255, 54, 33, .24);
+    }
+    .nav { display: flex; gap: 4px; overflow-x: auto; }
+    .nav a {
+      padding: 8px 11px;
+      color: var(--muted);
+      text-decoration: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+    .nav a:hover, .nav a:focus-visible { color: var(--ink); background: var(--surface); }
+
+    main { overflow: hidden; }
+    .container { width: min(1420px, calc(100% - 40px)); margin-inline: auto; }
+    .hero { padding: 92px 0 64px; }
+    .hero-grid { display: grid; grid-template-columns: 1.3fr .7fr; gap: 72px; align-items: end; }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 18px;
+      color: var(--red-dark);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before { content: ""; width: 26px; height: 2px; background: var(--red); }
+    h1 {
+      margin: 0;
+      max-width: 920px;
+      font-size: clamp(46px, 7vw, 94px);
+      line-height: .94;
+      letter-spacing: -.065em;
+      font-weight: 780;
+    }
+    h1 em { color: var(--red); font-style: normal; }
+    .lede {
+      margin: 28px 0 0;
+      max-width: 800px;
+      color: var(--muted);
+      font-size: clamp(18px, 2vw, 23px);
+      line-height: 1.45;
+    }
+    .hero-note {
+      padding: 24px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255,255,255,.7);
+      box-shadow: var(--shadow);
+    }
+    .hero-note strong { display: block; margin-bottom: 8px; font-size: 14px; }
+    .hero-note p { margin: 0; color: var(--muted); font-size: 14px; }
+    .hero-actions { margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap; }
+    .button {
+      appearance: none;
+      border: 0;
+      border-radius: 10px;
+      padding: 11px 15px;
+      background: var(--ink);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 750;
+      cursor: pointer;
+      transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+    }
+    .button:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(16,33,41,.15); }
+    .button.secondary { background: var(--surface-2); color: var(--ink); border: 1px solid var(--line); }
+    .button.danger { background: var(--red-dark); }
+    .button:focus-visible, .chip:focus-visible, .node:focus-visible, .tool-card:focus-visible,
+    .story-step:focus-visible { outline: 3px solid rgba(25,103,210,.28); outline-offset: 2px; }
+
+    .metrics {
+      margin-top: 58px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .metric { padding: 22px 20px; border-right: 1px solid var(--line); }
+    .metric:first-child { padding-left: 0; }
+    .metric:last-child { border-right: 0; }
+    .metric-value { font-size: 28px; font-weight: 780; letter-spacing: -.04em; }
+    .metric-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; font-weight: 750; }
+
+    section { padding: 88px 0; scroll-margin-top: 56px; }
+    .section-head { display: grid; grid-template-columns: .52fr 1fr; gap: 52px; margin-bottom: 34px; align-items: start; }
+    .section-kicker { color: var(--red-dark); font-weight: 800; font-size: 12px; text-transform: uppercase; letter-spacing: .12em; }
+    h2 { margin: 7px 0 0; font-size: clamp(34px, 4vw, 58px); line-height: 1.02; letter-spacing: -.045em; }
+    .section-intro { max-width: 740px; margin: 7px 0 0; color: var(--muted); font-size: 18px; }
+
+    .arch-card {
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: rgba(255,255,255,.86);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .arch-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 15px 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(246,247,243,.78);
+    }
+    .toolbar-label { font-size: 12px; color: var(--muted); font-weight: 700; }
+    .chips { display: flex; flex-wrap: wrap; gap: 7px; }
+    .chip {
+      appearance: none;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+      padding: 7px 11px;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 750;
+    }
+    .chip:hover, .chip.active { color: #fff; background: var(--ink); border-color: var(--ink); }
+    .arch-layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; min-height: 690px; }
+    .diagram-wrap { position: relative; min-width: 0; padding: 18px; overflow: auto; }
+    .diagram-help { position: absolute; right: 25px; top: 25px; color: var(--muted); font-size: 11px; z-index: 2; }
+    .architecture-svg { width: 100%; min-width: 840px; height: auto; display: block; }
+    .lane { fill: #f7f8f6; stroke: #e1e5e0; }
+    .lane-title { font-size: 11px; font-weight: 800; fill: #6d7b81; letter-spacing: .09em; }
+    .node { cursor: pointer; transition: opacity .22s ease, filter .22s ease; }
+    .node .node-box { fill: #fff; stroke: #cdd5d1; stroke-width: 1.4; transition: all .18s ease; }
+    .node .node-icon { transition: transform .18s ease; transform-origin: center; }
+    .node:hover .node-box, .node.active .node-box { stroke: var(--red); stroke-width: 2.4; filter: drop-shadow(0 8px 10px rgba(16,33,41,.1)); }
+    .node:hover .node-icon { transform: scale(1.08); }
+    .node-title { font-weight: 780; font-size: 14px; fill: var(--ink); }
+    .node-copy { font-size: 10.5px; fill: #65747b; }
+    .node-tag { font-size: 9px; font-weight: 800; letter-spacing: .05em; }
+    .node.dimmed, .edge.dimmed { opacity: .14; }
+    .node.spotlight .node-box { stroke: var(--red); stroke-width: 3; filter: drop-shadow(0 0 11px rgba(255,54,33,.3)); }
+    .edge { fill: none; stroke: #8a999f; stroke-width: 1.7; marker-end: url(#arrow); transition: opacity .22s ease, stroke .22s ease; }
+    .edge.accent { stroke: var(--red); }
+    .edge.govern { stroke: var(--violet); stroke-dasharray: 5 4; }
+    .edge.spotlight { stroke: var(--red); stroke-width: 3.2; opacity: 1; animation: dash 1.7s linear infinite; stroke-dasharray: 9 6; }
+    .edge-label { font-size: 9.5px; fill: #6b797f; font-weight: 700; }
+    @keyframes dash { to { stroke-dashoffset: -30; } }
+
+    .detail-panel {
+      border-left: 1px solid var(--line);
+      background: var(--navy);
+      color: #fff;
+      padding: 27px 25px;
+      display: flex;
+      flex-direction: column;
+    }
+    .detail-overline { font-size: 10px; text-transform: uppercase; letter-spacing: .12em; color: #9bcbd0; font-weight: 800; }
+    .detail-panel h3 { margin: 9px 0 13px; font-size: 25px; line-height: 1.1; letter-spacing: -.03em; }
+    .detail-panel p { margin: 0; color: #d4e0e4; font-size: 14px; }
+    .detail-list { margin: 20px 0 0; padding: 0; list-style: none; }
+    .detail-list li { padding: 11px 0; border-top: 1px solid rgba(255,255,255,.13); font-size: 12px; color: #dce7ea; }
+    .detail-list strong { display: block; color: #fff; margin-bottom: 2px; }
+    .detail-badge { margin-top: auto; padding-top: 22px; color: #9bcbd0; font-size: 11px; font-family: var(--mono); word-break: break-word; }
+
+    .story { margin-top: 24px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+    .story-head { padding: 22px 24px 16px; display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+    .story-head h3 { margin: 0; font-size: 22px; letter-spacing: -.025em; }
+    .story-head p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+    .story-steps { display: grid; grid-template-columns: repeat(8, 1fr); border-top: 1px solid var(--line); }
+    .story-step {
+      appearance: none;
+      min-height: 114px;
+      border: 0;
+      border-right: 1px solid var(--line);
+      background: #fff;
+      padding: 15px 12px;
+      text-align: left;
+      cursor: pointer;
+      transition: background .18s ease;
+    }
+    .story-step:last-child { border-right: 0; }
+    .story-step:hover, .story-step.active { background: #fff3f0; }
+    .step-number { display: block; color: var(--red-dark); font: 800 11px/1 var(--mono); margin-bottom: 13px; }
+    .step-name { display: block; font-size: 12px; font-weight: 780; line-height: 1.25; }
+    .story-detail { padding: 18px 24px; min-height: 84px; background: var(--surface-2); color: var(--muted); font-size: 14px; }
+    .story-detail strong { color: var(--ink); }
+
+    .agent-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .feature-card { padding: 26px; min-height: 270px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+    .feature-num { font: 800 12px/1 var(--mono); color: var(--red-dark); }
+    .feature-card h3 { margin: 30px 0 10px; font-size: 23px; line-height: 1.12; letter-spacing: -.03em; }
+    .feature-card p { margin: 0; color: var(--muted); font-size: 14px; }
+    .feature-card ul { margin: 18px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+
+    .routing-card { margin-top: 18px; display: grid; grid-template-columns: 1fr 1.1fr; background: var(--ink); color: #fff; border-radius: var(--radius); overflow: hidden; }
+    .routing-copy { padding: 30px; }
+    .routing-copy h3 { font-size: 28px; margin: 0 0 11px; letter-spacing: -.035em; }
+    .routing-copy p { margin: 0; color: #cbd9dd; font-size: 14px; }
+    .routing-flow { padding: 28px; background: var(--navy); display: grid; gap: 10px; }
+    .route-row { display: grid; grid-template-columns: 150px 28px 1fr; align-items: center; gap: 9px; }
+    .route-node { padding: 12px 13px; border: 1px solid rgba(255,255,255,.18); border-radius: 11px; font-size: 12px; font-weight: 700; background: rgba(255,255,255,.06); }
+    .route-arrow { text-align: center; color: #ff927e; }
+    .route-caption { color: #b9cbd0; font-size: 11px; }
+
+    .tool-controls { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .tool-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+    .tool-card {
+      appearance: none;
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      background: var(--surface);
+      min-height: 220px;
+      padding: 21px;
+      text-align: left;
+      cursor: pointer;
+      transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease;
+    }
+    .tool-card:hover, .tool-card.active { transform: translateY(-3px); box-shadow: var(--shadow); border-color: #9eaaa5; }
+    .tool-card.hidden { display: none; }
+    .tool-type { display: inline-block; padding: 5px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); font-size: 9px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
+    .tool-card h3 { margin: 21px 0 10px; font-family: var(--mono); font-size: 15px; overflow-wrap: anywhere; }
+    .tool-card p { margin: 0; color: var(--muted); font-size: 12px; }
+    .tool-policy { display: flex; align-items: center; gap: 7px; margin-top: 20px; font-size: 11px; font-weight: 800; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+    .dot.ask { background: var(--amber); }
+    .tool-detail {
+      margin-top: 16px;
+      min-height: 176px;
+      padding: 24px;
+      display: grid;
+      grid-template-columns: .8fr 1.2fr 1.2fr;
+      gap: 30px;
+      border-radius: 15px;
+      background: var(--navy);
+      color: #fff;
+    }
+    .tool-detail h3 { margin: 6px 0 8px; font: 700 17px/1.25 var(--mono); }
+    .tool-detail h4 { margin: 0 0 8px; color: #9bcbd0; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; }
+    .tool-detail p { margin: 0; color: #d2dfe2; font-size: 12px; }
+
+    .governance-grid { display: grid; grid-template-columns: .9fr 1.1fr; gap: 18px; align-items: stretch; }
+    .policy-lab { border-radius: var(--radius); background: var(--ink); color: #fff; padding: 28px; min-height: 475px; }
+    .policy-lab h3 { margin: 0 0 8px; font-size: 27px; letter-spacing: -.03em; }
+    .policy-lab > p { margin: 0 0 22px; color: #cbd8dc; font-size: 13px; }
+    .lab-label { display: block; margin-bottom: 7px; color: #9bcbd0; font-size: 10px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+    .policy-select { width: 100%; padding: 11px 12px; border: 1px solid rgba(255,255,255,.2); border-radius: 10px; background: #1a333e; color: #fff; }
+    .lab-actions { display: flex; gap: 9px; margin: 13px 0 22px; flex-wrap: wrap; }
+    .policy-result { border: 1px solid rgba(255,255,255,.17); border-radius: 13px; overflow: hidden; }
+    .result-top { padding: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: rgba(255,255,255,.06); }
+    .result-status { font: 800 13px/1 var(--mono); color: #a8e0c9; }
+    .result-status.ask { color: #ffc979; }
+    .result-status.approved { color: #a8e0c9; }
+    .result-body { padding: 16px; color: #d3e0e3; font-size: 12px; min-height: 116px; }
+    .result-body strong { color: #fff; }
+    .sim-note { margin-top: 13px; color: #94a7ad; font-size: 10px; }
+    .policy-code { border: 1px solid var(--line); border-radius: var(--radius); background: #fff; overflow: hidden; }
+    .code-head { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+    .code-head strong { font-size: 13px; }
+    .code-head span { color: var(--muted); font: 11px/1 var(--mono); }
+    pre { margin: 0; padding: 22px; overflow: auto; background: #f8faf8; color: #273a41; font: 12px/1.7 var(--mono); }
+    .policy-facts { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); }
+    .policy-fact { padding: 18px 20px; border-right: 1px solid var(--line); }
+    .policy-fact:last-child { border-right: 0; }
+    .policy-fact strong { display: block; margin-bottom: 4px; font-size: 12px; }
+    .policy-fact span { color: var(--muted); font-size: 11px; }
+
+    .approval-sequence { margin-top: 18px; display: grid; grid-template-columns: repeat(5, 1fr); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--surface); }
+    .approval-item { padding: 20px; border-right: 1px solid var(--line); position: relative; }
+    .approval-item:last-child { border-right: 0; }
+    .approval-item:not(:last-child)::after { content: "→"; position: absolute; right: -10px; top: 22px; z-index: 2; width: 20px; height: 20px; border-radius: 50%; background: var(--ink); color: #fff; text-align: center; line-height: 19px; font-size: 11px; }
+    .approval-item b { color: var(--red-dark); font: 800 11px/1 var(--mono); }
+    .approval-item strong { display: block; margin: 13px 0 5px; font-size: 13px; }
+    .approval-item span { color: var(--muted); font-size: 11px; }
+
+    .identity-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
+    .identity-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 25px; }
+    .identity-icon { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 12px; background: #e7f1f2; color: var(--cyan); font-weight: 850; }
+    .identity-card:nth-child(2) .identity-icon { background: #fff0ed; color: var(--red-dark); }
+    .identity-card:nth-child(3) .identity-icon { background: #eee9f8; color: var(--violet); }
+    .identity-card h3 { margin: 20px 0 8px; font-size: 21px; letter-spacing: -.025em; }
+    .identity-card > p { margin: 0; color: var(--muted); font-size: 13px; min-height: 62px; }
+    .access-list { list-style: none; padding: 0; margin: 18px 0 0; }
+    .access-list li { padding: 9px 0; border-top: 1px solid var(--line); font-size: 11px; display: flex; justify-content: space-between; gap: 10px; }
+    .access-list code { color: var(--blue); text-align: right; }
+    .boundary { margin-top: 17px; padding: 22px; border-left: 4px solid var(--red); background: #fff3f0; border-radius: 0 12px 12px 0; }
+    .boundary strong { font-size: 13px; }
+    .boundary p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+
+    .data-grid { display: grid; grid-template-columns: .9fr 1.1fr; gap: 18px; }
+    .data-flow-card, .data-table-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+    .card-head { padding: 22px 24px; border-bottom: 1px solid var(--line); }
+    .card-head h3 { margin: 0; font-size: 22px; letter-spacing: -.03em; }
+    .card-head p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+    .data-points { padding: 8px 24px 20px; }
+    .data-point { padding: 15px 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 110px 1fr; gap: 15px; font-size: 12px; }
+    .data-point:last-child { border-bottom: 0; }
+    .data-point strong { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--red-dark); }
+    .data-point span { color: var(--muted); }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { padding: 13px 16px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--muted); text-transform: uppercase; font-size: 9px; letter-spacing: .08em; background: #f8f9f7; }
+    td:first-child { font-family: var(--mono); color: var(--blue); }
+
+    footer { padding: 46px 0 70px; border-top: 1px solid var(--line); }
+    .footer-inner { display: flex; justify-content: space-between; gap: 30px; color: var(--muted); font-size: 11px; }
+    .footer-inner strong { color: var(--ink); }
+
+    @media (max-width: 1050px) {
+      .hero-grid, .section-head, .governance-grid, .data-grid { grid-template-columns: 1fr; gap: 26px; }
+      .hero-note { max-width: 680px; }
+      .arch-layout { grid-template-columns: 1fr; }
+      .detail-panel { border-left: 0; border-top: 1px solid var(--line); min-height: 310px; }
+      .story-steps { grid-template-columns: repeat(4, 1fr); }
+      .story-step:nth-child(4) { border-right: 0; }
+      .story-step { border-bottom: 1px solid var(--line); }
+      .agent-grid { grid-template-columns: 1fr; }
+      .feature-card { min-height: auto; }
+      .tool-grid { grid-template-columns: repeat(2, 1fr); }
+      .identity-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 720px) {
+      .container, .topbar-inner { width: min(100% - 24px, 1420px); }
+      .topbar-inner { height: auto; min-height: 58px; align-items: flex-start; padding: 12px 0; }
+      .brand span:last-child { display: none; }
+      .nav { padding-bottom: 2px; }
+      .hero { padding-top: 64px; }
+      .metrics { grid-template-columns: repeat(2, 1fr); }
+      .metric:nth-child(2) { border-right: 0; }
+      .metric:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+      .section-head { margin-bottom: 24px; }
+      section { padding: 62px 0; }
+      .arch-toolbar { align-items: flex-start; flex-direction: column; }
+      .story-steps { grid-template-columns: repeat(2, 1fr); }
+      .story-step:nth-child(2n) { border-right: 0; }
+      .routing-card, .tool-detail { grid-template-columns: 1fr; }
+      .route-row { grid-template-columns: 116px 22px 1fr; }
+      .tool-grid { grid-template-columns: 1fr; }
+      .policy-facts, .approval-sequence { grid-template-columns: 1fr; }
+      .policy-fact, .approval-item { border-right: 0; border-bottom: 1px solid var(--line); }
+      .approval-item:not(:last-child)::after { display: none; }
+      .footer-inner { flex-direction: column; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="progress" id="progress" aria-hidden="true"></div>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand"><span class="brand-mark">A</span><span>Asset Reliability Architecture</span></div>
+      <nav class="nav" aria-label="Page sections">
+        <a href="#architecture">Architecture</a>
+        <a href="#agent">Agent</a>
+        <a href="#tools">Tools</a>
+        <a href="#governance">Governance</a>
+        <a href="#identity">Identity</a>
+        <a href="#operations">Operations</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="container hero">
+      <div class="hero-grid">
+        <div>
+          <div class="eyebrow">Interactive technical explainer</div>
+          <h1>From live signal to <em>governed action.</em></h1>
+          <p class="lede">A real-time pump fleet, an autonomous reliability agent, and a maintenance write that cannot execute until Unity Gateway obtains human authorization.</p>
+        </div>
+        <aside class="hero-note">
+          <strong>Explore, do not just scroll.</strong>
+          <p>Select architecture lenses, click any component, step through an incident, inspect each MCP tool, and run the explanatory policy walkthrough.</p>
+          <div class="hero-actions">
+            <button class="button danger" id="start-tour">Start the incident tour</button>
+            <a class="button secondary" href="#governance">Jump to governance</a>
+          </div>
+        </aside>
+      </div>
+      <div class="metrics" aria-label="Architecture at a glance">
+        <div class="metric"><div class="metric-value">8 × 2 Hz</div><div class="metric-label">Pump telemetry</div></div>
+        <div class="metric"><div class="metric-value">1 sec</div><div class="metric-label">Alert evaluation</div></div>
+        <div class="metric"><div class="metric-value">4</div><div class="metric-label">Governed MCP tools</div></div>
+        <div class="metric"><div class="metric-value">1 ASK</div><div class="metric-label">Native action gate</div></div>
+      </div>
+    </div>
+
+    <section id="architecture">
+      <div class="container">
+        <div class="section-head">
+          <div><div class="section-kicker">01 · End-to-end</div><h2>One architecture, three paths</h2></div>
+          <p class="section-intro">The telemetry path is continuously live. The application path serves operational state. The agent path begins only when the App’s evaluator creates an incident. Use the lenses to isolate each path.</p>
+        </div>
+
+        <div class="arch-card">
+          <div class="arch-toolbar">
+            <span class="toolbar-label">Architecture lens</span>
+            <div class="chips" role="group" aria-label="Architecture lens">
+              <button class="chip active" data-lens="all">Everything</button>
+              <button class="chip" data-lens="telemetry">Real-time telemetry</button>
+              <button class="chip" data-lens="application">App &amp; operations</button>
+              <button class="chip" data-lens="agent">Autonomous agent</button>
+              <button class="chip" data-lens="governance">Governance</button>
+            </div>
+          </div>
+          <div class="arch-layout">
+            <div class="diagram-wrap">
+              <span class="diagram-help">Click a component for details</span>
+              <svg class="architecture-svg" viewBox="0 0 1050 650" role="img" aria-labelledby="diagram-title diagram-desc">
+                <title id="diagram-title">Asset Reliability Command Center architecture</title>
+                <desc id="diagram-desc">Continuous pump telemetry flows through a producer, Kafka, Spark Real-Time Mode, and Lakebase. A Databricks App serves the command center and hosts an autonomous agent whose tools are governed by Unity Gateway.</desc>
+                <defs>
+                  <marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="context-stroke"></path></marker>
+                </defs>
+
+                <rect class="lane" x="12" y="30" width="1026" height="154" rx="18"></rect>
+                <text class="lane-title" x="30" y="55">EXPERIENCE &amp; OPERATIONAL STATE</text>
+                <rect class="lane" x="12" y="200" width="1026" height="170" rx="18"></rect>
+                <text class="lane-title" x="30" y="225">CONTINUOUS REAL-TIME DATA PLANE</text>
+                <rect class="lane" x="12" y="386" width="1026" height="244" rx="18"></rect>
+                <text class="lane-title" x="30" y="411">AGENT, AI &amp; GOVERNANCE PLANE</text>
+
+                <path class="edge" data-tags="application" data-edge="browser-app" d="M178 112 H287"></path>
+                <text class="edge-label" x="200" y="102">HTTPS + SSE</text>
+                <path class="edge" data-tags="application telemetry agent" data-edge="lakebase-app" d="M752 112 H623"></path>
+                <text class="edge-label" x="646" y="102">SQL + NOTIFY</text>
+                <path class="edge accent" data-tags="telemetry" data-edge="producer-kafka" d="M190 294 H275"></path>
+                <path class="edge accent" data-tags="telemetry" data-edge="kafka-rtm" d="M408 294 H493"></path>
+                <path class="edge accent" data-tags="telemetry" data-edge="rtm-lakebase" d="M626 294 H711 Q775 294 795 185"></path>
+                <path class="edge" data-tags="application" data-edge="app-producer" d="M376 166 V191 Q376 200 367 200 H117 V246"></path>
+                <text class="edge-label" x="147" y="193">durable scenario commands</text>
+                <path class="edge govern" data-tags="agent governance" data-edge="app-skill" d="M465 166 V443 H237"></path>
+                <text class="edge-label" x="286" y="433">load governed procedure</text>
+                <path class="edge" data-tags="agent" data-edge="app-models" d="M515 166 V420 Q515 443 538 443 H596"></path>
+                <path class="edge govern" data-tags="agent governance" data-edge="app-gateway" d="M565 166 V395 Q565 420 590 420 H805 V443"></path>
+                <text class="edge-label" x="628" y="411">MCP + OBO identity</text>
+                <path class="edge govern" data-tags="agent governance" data-edge="gateway-mcp" d="M864 492 V547 H608"></path>
+                <text class="edge-label" x="666" y="539">OAuth connection → /mcp</text>
+                <path class="edge govern" data-tags="governance" data-edge="gateway-approval" d="M923 468 H973"></path>
+                <path class="edge" data-tags="agent application" data-edge="mcp-lakebase" d="M480 566 H420 Q402 566 402 548 V166"></path>
+
+                <g class="node" tabindex="0" role="button" aria-label="Operator. Browser command center. Databricks App user." data-node="browser" data-tags="application governance" transform="translate(42 75)">
+                  <rect class="node-box" width="136" height="74" rx="13"></rect>
+                  <circle class="node-icon" cx="23" cy="24" r="10" fill="#dff0f1"></circle><path d="M18 24h10M23 19v10" stroke="#007f86" stroke-width="1.5"></path>
+                  <text class="node-title" x="42" y="28">Operator</text><text class="node-copy" x="16" y="51">Browser command center</text><text class="node-tag" x="16" y="66" fill="#007f86">DATABRICKS APP USER</text>
+                </g>
+
+                <g class="node" tabindex="0" role="button" aria-label="Databricks App · command center. React UI + FastAPI + SSE. EVALUATOR. AGENT RUNTIME. MCP SERVER." data-node="app" data-tags="application agent governance" transform="translate(287 66)">
+                  <rect class="node-box" width="336" height="100" rx="15"></rect>
+                  <rect class="node-icon" x="16" y="16" width="34" height="34" rx="9" fill="#ff3621"></rect><path d="M25 27h16M25 33h16M29 22h8" stroke="#fff" stroke-width="2"></path>
+                  <text class="node-title" x="62" y="31">Databricks App · command center</text>
+                  <text class="node-copy" x="62" y="49">React UI + FastAPI + SSE</text>
+                  <rect x="16" y="66" width="83" height="20" rx="6" fill="#eef1ec"></rect><text class="node-tag" x="28" y="80" fill="#53636a">EVALUATOR</text>
+                  <rect x="106" y="66" width="98" height="20" rx="6" fill="#fff0ed"></rect><text class="node-tag" x="118" y="80" fill="#c82d1c">AGENT RUNTIME</text>
+                  <rect x="211" y="66" width="106" height="20" rx="6" fill="#eee9f8"></rect><text class="node-tag" x="223" y="80" fill="#7251b5">MCP SERVER</text>
+                </g>
+
+                <g class="node" tabindex="0" role="button" aria-label="Lakebase. Operational source of truth. Live state, incidents, audit, work orders." data-node="lakebase" data-tags="application telemetry agent" transform="translate(795 69)">
+                  <rect class="node-box" width="198" height="94" rx="15"></rect>
+                  <ellipse class="node-icon" cx="31" cy="24" rx="16" ry="8" fill="#1967d2"></ellipse><path d="M15 24v28c0 5 7 8 16 8s16-3 16-8V24" fill="#dbe8fb" stroke="#1967d2" stroke-width="1.4"></path><path d="M15 38c0 5 7 8 16 8s16-3 16-8" fill="none" stroke="#1967d2"></path>
+                  <text class="node-title" x="58" y="29">Lakebase</text><text class="node-copy" x="58" y="47">Operational source of truth</text><text class="node-copy" x="16" y="75">Live state · incidents · audit · work orders</text>
+                </g>
+
+                <g class="node" tabindex="0" role="button" aria-label="Pump producer. Classic continuous job. 8 PUMPS · 2 HZ EACH." data-node="producer" data-tags="telemetry application" transform="translate(42 246)">
+                  <rect class="node-box" width="148" height="96" rx="14"></rect>
+                  <path class="node-icon" d="M18 44c10-30 18 30 29 0s19 30 31 0" fill="none" stroke="#ff3621" stroke-width="3"></path>
+                  <text class="node-title" x="16" y="68">Pump producer</text><text class="node-copy" x="16" y="83">Classic continuous job</text><text class="node-tag" x="16" y="21" fill="#c82d1c">8 PUMPS · 2 HZ EACH</text>
+                </g>
+
+                <g class="node" tabindex="0" role="button" aria-label="Kafka topic. Telemetry event bus." data-node="kafka" data-tags="telemetry" transform="translate(275 254)">
+                  <rect class="node-box" width="133" height="80" rx="14"></rect>
+                  <circle class="node-icon" cx="24" cy="27" r="4" fill="#102129"></circle><circle cx="39" cy="20" r="4" fill="#102129"></circle><circle cx="39" cy="34" r="4" fill="#102129"></circle><path d="M27 25l8-3M27 29l8 3M43 20h8M43 34h8" stroke="#102129" stroke-width="1.4"></path>
+                  <text class="node-title" x="16" y="57">Kafka topic</text><text class="node-copy" x="16" y="71">Telemetry event bus</text>
+                </g>
+
+                <g class="node" tabindex="0" role="button" aria-label="Spark Real-Time Mode, DBR 19. Decode, validate, sink with Structured Streaming." data-node="rtm" data-tags="telemetry" transform="translate(493 246)">
+                  <rect class="node-box" width="133" height="96" rx="14"></rect>
+                  <path class="node-icon" d="M17 25h25l-9 12h14L20 60l10-16H17z" fill="#ff8a4c"></path>
+                  <text class="node-title" x="56" y="29">Spark RTM</text><text class="node-copy" x="56" y="45">DBR 19</text><text class="node-copy" x="16" y="76">Decode · validate · sink</text><text class="node-tag" x="16" y="89" fill="#c82d1c">STRUCTURED STREAMING</text>
+                </g>
+
+                <g class="node" tabindex="0" role="button" aria-label="UC Skill. Response procedure. Evidence rules + action. RUNTIME DISCOVERY." data-node="skill" data-tags="agent governance" transform="translate(72 443)">
+                  <rect class="node-box" width="165" height="98" rx="14"></rect>
+                  <path class="node-icon" d="M18 20h30v42H18zM24 29h18M24 37h18M24 45h12" fill="#fff" stroke="#7251b5" stroke-width="1.7"></path>
+                  <text class="node-title" x="58" y="31">UC Skill</text><text class="node-copy" x="58" y="47">Response procedure</text><text class="node-copy" x="16" y="77">Evidence rules + action</text><text class="node-tag" x="16" y="91" fill="#7251b5">RUNTIME DISCOVERY</text>
+                </g>
+
+                <g class="node" tabindex="0" role="button" aria-label="Model endpoints. Databricks hosted. GPT-5.1 to Sonnet 4.5 evidence-based routing." data-node="models" data-tags="agent" transform="translate(596 443)">
+                  <rect class="node-box" width="170" height="98" rx="14"></rect>
+                  <circle class="node-icon" cx="28" cy="28" r="15" fill="#dff0f1"></circle><path d="M20 28h16M28 20v16M22 22l12 12M34 22L22 34" stroke="#007f86" stroke-width="1.2"></path>
+                  <text class="node-title" x="52" y="27">Model endpoints</text><text class="node-copy" x="52" y="43">Databricks hosted</text><text class="node-copy" x="16" y="74">GPT-5.1 → Sonnet 4.5</text><text class="node-tag" x="16" y="89" fill="#007f86">EVIDENCE-BASED ROUTING</text>
+                </g>
+
+                <g class="node" tabindex="0" role="button" aria-label="Unity Gateway MCP service." data-node="gateway" data-tags="agent governance" transform="translate(805 420)">
+                  <rect class="node-box" width="118" height="72" rx="14"></rect>
+                  <path class="node-icon" d="M17 22h26v28H17zM23 22v-7h14v7" fill="none" stroke="#7251b5" stroke-width="2"></path>
+                  <text class="node-title" x="53" y="28">Unity</text><text class="node-title" x="53" y="45">Gateway</text><text class="node-tag" x="17" y="63" fill="#7251b5">MCP SERVICE</text>
+                </g>
+
+                <g class="node" tabindex="0" role="button" aria-label="Native approval." data-node="approval" data-tags="governance" transform="translate(973 425)">
+                  <rect class="node-box" width="54" height="86" rx="14"></rect>
+                  <circle class="node-icon" cx="27" cy="27" r="14" fill="#fff0d9"></circle><path d="M20 27l5 5 10-12" fill="none" stroke="#a65e00" stroke-width="2.4"></path>
+                  <text class="node-tag" transform="rotate(-90 21 77)" x="21" y="77" fill="#a65e00">APPROVAL</text>
+                </g>
+
+                <g class="node" tabindex="0" role="button" aria-label="App-hosted MCP tools. Telemetry · risk · plan · work-order write." data-node="mcp" data-tags="agent governance application" transform="translate(352 547)">
+                  <rect class="node-box" width="256" height="64" rx="13"></rect>
+                  <circle class="node-icon" cx="26" cy="24" r="10" fill="#eee9f8"></circle><path d="M20 24h12M26 18v12" stroke="#7251b5" stroke-width="1.6"></path>
+                  <text class="node-title" x="45" y="27">App-hosted MCP tools</text><text class="node-copy" x="16" y="48">Telemetry · risk · plan · work-order write</text>
+                </g>
+              </svg>
+            </div>
+            <aside class="detail-panel" id="node-detail" aria-live="polite">
+              <div class="detail-overline">System view</div>
+              <h3>Continuous data, event-driven autonomy</h3>
+              <p>The App never publishes directly to Kafka. Durable Lakebase commands control the producer, while the agent reaches business tools only through Unity Gateway.</p>
+              <ul class="detail-list">
+                <li><strong>Telemetry path</strong>Producer → Kafka → Spark RTM → Lakebase</li>
+                <li><strong>Experience path</strong>Lakebase → App snapshot/SSE → browser</li>
+                <li><strong>Governed action path</strong>Agent → Unity Gateway → App-hosted MCP → Lakebase</li>
+              </ul>
+              <div class="detail-badge">Select any node to inspect its runtime and trust boundary.</div>
+            </aside>
+          </div>
+        </div>
+
+        <div class="story" id="story">
+          <div class="story-head">
+            <div><h3>Walk one P-204 incident</h3><p>Each step highlights the systems active at that moment.</p></div>
+            <div><button class="button secondary" id="story-prev">Previous</button> <button class="button" id="story-next">Next step</button></div>
+          </div>
+          <div class="story-steps" role="tablist" aria-label="Incident walkthrough">
+            <button class="story-step active" role="tab" data-step="0"><span class="step-number">01</span><span class="step-name">Continuous signals</span></button>
+            <button class="story-step" role="tab" data-step="1"><span class="step-number">02</span><span class="step-name">Threshold entry</span></button>
+            <button class="story-step" role="tab" data-step="2"><span class="step-number">03</span><span class="step-name">Load Skill</span></button>
+            <button class="story-step" role="tab" data-step="3"><span class="step-number">04</span><span class="step-name">Discover tools</span></button>
+            <button class="story-step" role="tab" data-step="4"><span class="step-number">05</span><span class="step-name">Assess evidence</span></button>
+            <button class="story-step" role="tab" data-step="5"><span class="step-number">06</span><span class="step-name">Gateway ASK</span></button>
+            <button class="story-step" role="tab" data-step="6"><span class="step-number">07</span><span class="step-name">Approve &amp; replay</span></button>
+            <button class="story-step" role="tab" data-step="7"><span class="step-number">08</span><span class="step-name">Scheduled</span></button>
+          </div>
+          <div class="story-detail" id="story-detail"><strong>Continuous signals.</strong> The producer emits two samples per second for every pump. Spark RTM validates and sinks each event into Lakebase while the fleet screen stays live over SSE.</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="agent">
+      <div class="container">
+        <div class="section-head">
+          <div><div class="section-kicker">02 · Agent runtime</div><h2>Autonomous by trigger, not by prompt</h2></div>
+          <p class="section-intro">The user does not ask “what is happening?” The threshold crossing already contains the asset and condition. The App creates a machine-authored investigation request and starts one isolated async task per incident.</p>
+        </div>
+        <div class="agent-grid">
+          <article class="feature-card"><div class="feature-num">01 / TRIGGER</div><h3>The plant state starts the work</h3><p>Every second, the App evaluates current Lakebase state. A threshold entry transactionally creates one incident and one run for the scenario, pump, and rule.</p><ul><li>Asset, condition, timestamp, and incident ID supplied automatically</li><li>Duplicate incident creation is constrained in Lakebase</li><li>Normal transients can run in parallel</li></ul></article>
+          <article class="feature-card"><div class="feature-num">02 / DISCOVERY</div><h3>Procedure and tools arrive at runtime</h3><p>The runtime first loads the current Unity Catalog Skill, then asks the MCP service for its tool surface. The UI renders those events only after discovery.</p><ul><li>No hardcoded UI stages or expected Skill name</li><li>No fixed sequence or tool-call cap</li><li>Every actual call becomes a timeline event</li></ul></article>
+          <article class="feature-card"><div class="feature-num">03 / OUTCOME</div><h3>Evidence decides the branch</h3><p>Self-resolving transients close with no action. Persistent, correlated degradation drives preparation and a governed work-order attempt.</p><ul><li>Decision rationale is prospective—before calls execute</li><li>Terminal output uses Finding, Evidence, Risk, Action</li><li>ASK creates a pause, not a premature conclusion</li></ul></article>
+        </div>
+        <div class="routing-card">
+          <div class="routing-copy"><h3>Reasoning is code-defined; tool choice is model-driven.</h3><p>The current <code>main</code> runtime begins with GPT-5.1 for tool selection and routes subsequent reasoning to Claude Sonnet 4.5 when the governed risk tool establishes high risk. Model endpoint names appear in the UI only after a real model event.</p></div>
+          <div class="routing-flow" aria-label="Current model routing">
+            <div class="route-row"><div class="route-node">Autonomous alert</div><div class="route-arrow">→</div><div><div class="route-node">GPT-5.1</div><div class="route-caption">Initial evidence and tool selection</div></div></div>
+            <div class="route-row"><div class="route-node">Low risk</div><div class="route-arrow">→</div><div><div class="route-node">No-action conclusion</div><div class="route-caption">Normal transient recorded</div></div></div>
+            <div class="route-row"><div class="route-node">High risk</div><div class="route-arrow">→</div><div><div class="route-node">Claude Sonnet 4.5</div><div class="route-caption">Action continuation and final response</div></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tools">
+      <div class="container">
+        <div class="section-head">
+          <div><div class="section-kicker">03 · MCP access</div><h2>Exactly what the agent can reach</h2></div>
+          <p class="section-intro">Unity Gateway exposes one MCP service backed by the App’s <code>/mcp</code> endpoint. The four tools form a deliberately narrow business surface: observe, assess, prepare, and—only when approved—write.</p>
+        </div>
+        <div class="tool-controls">
+          <span class="toolbar-label">Filter by capability</span>
+          <div class="chips" role="group" aria-label="Tool filter">
+            <button class="chip active" data-tool-filter="all">All tools</button>
+            <button class="chip" data-tool-filter="read">Read</button>
+            <button class="chip" data-tool-filter="analysis">Analysis</button>
+            <button class="chip" data-tool-filter="prepare">Prepare</button>
+            <button class="chip" data-tool-filter="write">Write</button>
+          </div>
+        </div>
+        <div class="tool-grid" id="tool-grid">
+          <button class="tool-card active" data-tool="telemetry" data-kind="read"><span class="tool-type">Read</span><h3>get_asset_telemetry</h3><p>Current and recent operating context for one asset: vibration, threshold, flow, motor current, trend, and timestamp.</p><div class="tool-policy"><span class="dot"></span>Gateway path · ALLOW</div></button>
+          <button class="tool-card" data-tool="risk" data-kind="analysis"><span class="tool-type">Analysis</span><h3>assess_failure_risk</h3><p>Computes near-term risk from persistence, direction, threshold samples, motor current, and bearing temperature.</p><div class="tool-policy"><span class="dot"></span>Gateway path · ALLOW</div></button>
+          <button class="tool-card" data-tool="prepare" data-kind="prepare"><span class="tool-type">Prepare</span><h3>prepare_work_order</h3><p>Creates a non-binding plan, checks part BRG-6312-C3, duration, and the next available maintenance window.</p><div class="tool-policy"><span class="dot"></span>Gateway path · ALLOW</div></button>
+          <button class="tool-card" data-tool="submit" data-kind="write"><span class="tool-type">Operational write</span><h3>submit_work_order</h3><p>Creates an idempotent, scheduled work order in Lakebase for the approved incident and planned window.</p><div class="tool-policy"><span class="dot ask"></span>Custom policy · ASK</div></button>
+        </div>
+        <div class="tool-detail" id="tool-detail" aria-live="polite">
+          <div><h4>Selected tool</h4><h3>get_asset_telemetry</h3><p>Read-only evidence acquisition.</p></div>
+          <div><h4>Inputs</h4><p><code>asset_id</code> (required). The asset is supplied by the autonomous incident prompt—not typed by the presenter.</p></div>
+          <div><h4>Data and side effect</h4><p>Reads the bounded current fleet snapshot from the repository. Returns measured values and trend. It does not mutate plant or maintenance state.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="governance">
+      <div class="container">
+        <div class="section-head">
+          <div><div class="section-kicker">04 · Agentic governance</div><h2>The policy is in the path</h2></div>
+          <p class="section-intro">Approval is not a role-play inside the application. The agent attempts the tool, Unity Gateway evaluates the request, and the service policy returns <code>ASK</code> before the MCP source is called.</p>
+        </div>
+        <div class="governance-grid">
+          <div class="policy-lab">
+            <h3>Policy walkthrough</h3>
+            <p>This local interaction explains the deployed policy contract; it does not call the live service.</p>
+            <label class="lab-label" for="policy-tool">MCP tool request</label>
+            <select class="policy-select" id="policy-tool">
+              <option value="get_asset_telemetry">get_asset_telemetry</option>
+              <option value="assess_failure_risk">assess_failure_risk</option>
+              <option value="prepare_work_order">prepare_work_order</option>
+              <option value="submit_work_order">submit_work_order</option>
+            </select>
+            <div class="lab-actions"><button class="button danger" id="evaluate-policy">Evaluate policy</button><button class="button secondary" id="approve-policy" hidden>Simulate native approval</button></div>
+            <div class="policy-result" aria-live="polite">
+              <div class="result-top"><strong>Gateway decision</strong><span class="result-status" id="policy-status">READY</span></div>
+              <div class="result-body" id="policy-body">Choose a tool and evaluate the request. Read, analysis, and preparation calls are allowed; the operational work-order write is intercepted.</div>
+            </div>
+            <div class="sim-note">The real demo opens the Unity Gateway approval URL and replays the exact serialized request only after authorization.</div>
+          </div>
+          <div class="policy-code">
+            <div class="code-head"><strong>Custom Unity Gateway policy</strong><span>submit_work_order_policy</span></div>
+            <pre><code>CASE
+  WHEN event:type::string = 'request'
+   AND event:context.tool.name::string =
+       'submit_work_order'
+  THEN {
+    "result": "ASK",
+    "reason": "Submitting a maintenance work order
+               requires human authorization."
+  }
+  ELSE { "result": "ALLOW", "reason": "" }
+END</code></pre>
+            <div class="policy-facts">
+              <div class="policy-fact"><strong>Scoped to one tool</strong><span>Evidence gathering and non-binding preparation remain autonomous.</span></div>
+              <div class="policy-fact"><strong>Stops before execution</strong><span>The activity reads “ASK · Not executed”; no work order exists yet.</span></div>
+              <div class="policy-fact"><strong>Gateway owns approval</strong><span>The App stores pending state but cannot manufacture an approval.</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="approval-sequence" aria-label="Native approval sequence">
+          <div class="approval-item"><b>01</b><strong>Agent selects write</strong><span>The model chooses <code>submit_work_order</code> from the runtime-discovered tool surface.</span></div>
+          <div class="approval-item"><b>02</b><strong>Gateway returns ASK</strong><span>Policy produces a URL elicitation; the source MCP tool is not invoked.</span></div>
+          <div class="approval-item"><b>03</b><strong>Runtime pauses</strong><span>Exact serialized request and elicitation metadata are persisted; token is not.</span></div>
+          <div class="approval-item"><b>04</b><strong>Human authorizes</strong><span>The operator follows the native Gateway handoff, using their Databricks identity.</span></div>
+          <div class="approval-item"><b>05</b><strong>Exact request replays</strong><span>Gateway allows execution, the work order is created, and only then is the conclusion emitted.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="identity">
+      <div class="container">
+        <div class="section-head">
+          <div><div class="section-kicker">05 · Trust boundaries</div><h2>Three identities, separated responsibilities</h2></div>
+          <p class="section-intro">The model never receives broad workspace credentials. The App’s infrastructure access and the operator’s governed business identity are distinct, and bearer tokens remain process-local.</p>
+        </div>
+        <div class="identity-grid">
+          <article class="identity-card"><div class="identity-icon">U</div><h3>Operator / OBO identity</h3><p>The App receives a forwarded user token with the <code>ai-gateway</code> scope. It uses that identity for Skill and MCP Gateway calls.</p><ul class="access-list"><li><span>Databricks App</span><code>CAN_USE</code></li><li><span>Catalog</span><code>USE_CATALOG</code></li><li><span>Schema</span><code>USE_SCHEMA</code></li><li><span>UC Skill</span><code>READ_VOLUME</code></li><li><span>MCP service</span><code>EXECUTE</code></li></ul></article>
+          <article class="identity-card"><div class="identity-icon">A</div><h3>App service principal</h3><p>Runs FastAPI, the evaluator, the code-defined agent, and the source MCP server. App resource bindings define its infrastructure access.</p><ul class="access-list"><li><span>Lakebase branch</span><code>CAN_CONNECT_AND_CREATE</code></li><li><span>SQL warehouse</span><code>CAN_USE</code></li><li><span>Model endpoints</span><code>CAN_QUERY</code></li><li><span>Source App boundary</span><code>CAN_USE</code></li><li><span>Kafka network</span><code>NONE</code></li></ul></article>
+          <article class="identity-card"><div class="identity-icon">J</div><h3>Isolated job compute</h3><p>Two continuous classic-compute jobs separate signal production from ingestion and from the interactive App.</p><ul class="access-list"><li><span>Producer → Kafka</span><code>PUBLISH</code></li><li><span>Producer → commands</span><code>CLAIM / ACK</code></li><li><span>RTM → Kafka</span><code>READ</code></li><li><span>RTM → Lakebase</span><code>STREAMING SINK</code></li><li><span>RTM checkpoint</span><code>UC VOLUME</code></li></ul></article>
+        </div>
+        <div class="boundary"><strong>Token boundary</strong><p>The browser’s forwarded token is cached only in App process memory and used for Gateway calls. Lakebase stores the identity subject for audit, never the bearer token. A restart during pending approval therefore requires a live user session before replay can continue.</p></div>
+      </div>
+    </section>
+
+    <section id="operations">
+      <div class="container">
+        <div class="section-head">
+          <div><div class="section-kicker">06 · Operational design</div><h2>Fast reads as the event log grows</h2></div>
+          <p class="section-intro">Lakebase holds both the append/upsert telemetry log and bounded operational projections. The dashboard does not scan history to repaint the fleet.</p>
+        </div>
+        <div class="data-grid">
+          <article class="data-flow-card"><div class="card-head"><h3>Live-state strategy</h3><p>Canonical tables first; notifications are only hints.</p></div><div class="data-points"><div class="data-point"><strong>On ingest</strong><span>A Lakebase trigger upserts <code>pump_live_state</code> and emits <code>LISTEN/NOTIFY</code>.</span></div><div class="data-point"><strong>For display</strong><span>The App coalesces a notification burst for 50 ms, rebuilds one snapshot, and publishes a revision over SSE.</span></div><div class="data-point"><strong>For alerts</strong><span>An independent one-second loop queries current state and transactionally creates incidents on threshold entry.</span></div><div class="data-point"><strong>For trends</strong><span>Eight index-backed lateral probes fetch at most 20 samples per pump, keeping work bounded.</span></div><div class="data-point"><strong>For retention</strong><span>Best-effort cleanup removes 24-hour-old telemetry in batches of 1,000 without blocking ingestion.</span></div></div></article>
+          <article class="data-table-card"><div class="card-head"><h3>Lakebase records</h3><p>The operational store links plant evidence, agent execution, and business outcome.</p></div><div class="table-wrap"><table><thead><tr><th>Record</th><th>Purpose</th></tr></thead><tbody><tr><td>telemetry_events</td><td>Idempotent event log keyed by deterministic event ID.</td></tr><tr><td>pump_live_state</td><td>Latest measurement per scenario and pump.</td></tr><tr><td>scenario_commands</td><td>Durable presenter control; claimed safely by the producer.</td></tr><tr><td>incidents</td><td>Threshold event, lifecycle, resolution, work-order link.</td></tr><tr><td>agent_runs</td><td>Status, pending approval, token/cost/tool totals.</td></tr><tr><td>activity_events</td><td>Every runtime-emitted model, Skill, MCP, policy, and tool event.</td></tr><tr><td>conversation_messages</td><td>Agent conclusions and operator follow-up dialogue.</td></tr><tr><td>work_orders</td><td>Governed maintenance result created only after ALLOW.</td></tr><tr><td>run_identities</td><td>User subject audit metadata—never tokens.</td></tr><tr><td>component_heartbeats</td><td>Producer health and acknowledged messages.</td></tr></tbody></table></div></article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container footer-inner"><span><strong>Asset Reliability Command Center</strong> · Interactive architecture</span><span>Source-aligned with repository <code>main</code> at creation · October 2026</span></div>
+  </footer>
+
+  <script>
+    const nodeData = {
+      browser: { overline: 'Experience', title: 'Operator command center', body: 'An authenticated Databricks App user sees live fleet state, agent alerts, incident history, and the two-pane review overlay. Only the selected shift operator can mutate scenarios or follow up.', facts: [['Inbound', 'SSE revisions and incident detail'], ['Outbound', 'Scenario controls, approval follow-up, questions'], ['Identity', 'Forwarded user token with ai-gateway scope']], badge: 'The presenter never types the initial investigation prompt.' },
+      app: { overline: 'Databricks App', title: 'UI, APIs, evaluator, agent and MCP', body: 'One deployment hosts the React experience and FastAPI runtime. It evaluates alerts every second, creates concurrent agent tasks, emits UI activity, and serves the narrow MCP tool implementation.', facts: [['Resource identity', 'App service principal'], ['User identity', 'OBO token for Gateway calls'], ['Push channel', 'Server-Sent Events'], ['Alert cadence', 'One second']], badge: 'asset-reliability-center' },
+      lakebase: { overline: 'Operational store', title: 'Lakebase is canonical state', body: 'PostgreSQL stores current plant state, the telemetry log, commands, incidents, agent events, pending approvals, audit subjects, and work orders.', facts: [['Database schema', 'asset_reliability'], ['Read path', 'Bounded, index-backed queries'], ['Notification', 'LISTEN/NOTIFY'], ['Retention', '24 hours of raw telemetry']], badge: 'Project: asset-reliability-command-center' },
+      producer: { overline: 'Synthetic plant', title: 'Continuous classic-compute producer', body: 'The producer streams stable telemetry continuously and changes behavior only after safely claiming durable Lakebase commands. P-204 moves smoothly from stable state into issue onset.', facts: [['Fleet', 'Eight comparable pumps'], ['Rate', 'Two samples/second/pump'], ['Command claim', 'FOR UPDATE SKIP LOCKED'], ['Delivery', 'Kafka acknowledged before heartbeat']], badge: 'Continuous job 952037348530266' },
+      kafka: { overline: 'Event bus', title: 'Dedicated Kafka telemetry topic', body: 'Kafka decouples device-like signal production from Spark ingestion. The Databricks App has no direct broker network dependency.', facts: [['Topic', 'asset-reliability-pump-telemetry'], ['Producer', 'Classic compute'], ['Consumer', 'Spark Structured Streaming RTM']], badge: 'Broker connectivity stays outside the App.' },
+      rtm: { overline: 'Ingestion', title: 'Spark Structured Streaming Real-Time Mode', body: 'A standalone DBR 19 query decodes and validates Kafka envelopes, then writes directly to the native PostgreSQL/Lakebase streaming sink.', facts: [['Output mode', 'update'], ['Checkpoint', 'Unity Catalog volume'], ['Event safety', 'Deterministic idempotent keys'], ['Responsibility', 'Ingestion only—no alert logic']], badge: 'Continuous job 17156207332698' },
+      skill: { overline: 'Governed procedure', title: 'Unity Catalog Skill', body: 'The response procedure tells the agent how to distinguish a normal transient from credible degradation and when to pursue bearing replacement. It is loaded at runtime, not copied into the UI.', facts: [['Name', 'asset-reliability-response'], ['User privilege', 'READ_VOLUME'], ['Parent access', 'USE_CATALOG + USE_SCHEMA'], ['Behavior', 'No predetermined tool count']], badge: 'Governed content can change independently of UI code.' },
+      models: { overline: 'Reasoning', title: 'Databricks-hosted model endpoints', body: 'The App service principal calls bound model endpoints. The current main runtime starts on GPT-5.1 and routes high-risk continuation and final response generation to Claude Sonnet 4.5.', facts: [['Initial', 'databricks-gpt-5-1'], ['High risk', 'databricks-claude-sonnet-4-5'], ['Binding', 'CAN_QUERY'], ['Model access', 'No direct Lakebase or MCP credential']], badge: 'Tokens and estimated cost are accumulated per agent run.' },
+      gateway: { overline: 'Governed execution', title: 'Unity Gateway MCP service', body: 'The agent lists and calls tools through Gateway using the captured user identity. Gateway applies service policy before forwarding the request to the App-hosted MCP source.', facts: [['User privilege', 'EXECUTE'], ['Tool discovery', 'Runtime tools/list'], ['Policy', 'Custom request-time policy'], ['Sensitive decision', 'ASK on submit_work_order']], badge: 'MCP service: asset_reliability_mcp' },
+      approval: { overline: 'Human in the loop', title: 'Native approval handoff', body: 'Unity Gateway creates the real approval request and URL. The App displays the handoff and pauses. It does not pretend the operator changed roles or fabricate approval.', facts: [['Before approval', 'ASK · Not executed'], ['Authority', 'Unity Gateway'], ['After approval', 'Exact request replay'], ['Repeated ASK', 'Existing waiting state remains']], badge: 'The demo visibly stops at the business boundary.' },
+      mcp: { overline: 'Business capabilities', title: 'App-hosted MCP source', body: 'A deliberately narrow MCP server exposes four business functions backed by the command-center repository. Gateway’s OAuth HTTP connection authenticates to this App boundary as the App service principal.', facts: [['Read', 'get_asset_telemetry'], ['Analyze', 'assess_failure_risk'], ['Prepare', 'prepare_work_order'], ['Write', 'submit_work_order']], badge: 'The model can choose only what Gateway exposes.' }
+    };
+
+    const story = [
+      { nodes: ['producer','kafka','rtm','lakebase','app','browser'], edges: ['producer-kafka','kafka-rtm','rtm-lakebase','lakebase-app','browser-app'], html: '<strong>Continuous signals.</strong> The producer emits two samples per second for every pump. Spark RTM validates and sinks each event into Lakebase while the fleet screen stays live over SSE.' },
+      { nodes: ['lakebase','app','browser'], edges: ['lakebase-app','browser-app'], html: '<strong>Threshold entry.</strong> The App’s independent one-second evaluator sees P-204 cross the configured rule, creates one incident/run transactionally, and emits the visual alert—no typed prompt.' },
+      { nodes: ['app','skill','gateway'], edges: ['app-skill'], html: '<strong>Load the governed procedure.</strong> Using the operator’s OBO identity, the runtime calls the Skill Gateway and retrieves the current asset-reliability response instructions.' },
+      { nodes: ['app','gateway','mcp'], edges: ['app-gateway','gateway-mcp'], html: '<strong>Discover capabilities.</strong> The agent calls <code>tools/list</code>. Only after Gateway returns the live MCP surface do tool names appear in the incident timeline.' },
+      { nodes: ['app','models','gateway','mcp','lakebase'], edges: ['app-models','app-gateway','gateway-mcp','mcp-lakebase'], html: '<strong>Assess the evidence.</strong> Model turns choose governed reads and analysis. The tool reports persistent vibration plus correlated temperature/current and a high failure probability, so the workflow advances toward maintenance.' },
+      { nodes: ['app','gateway','approval','mcp'], edges: ['app-gateway','gateway-approval'], html: '<strong>Gateway returns ASK.</strong> On <code>submit_work_order</code>, policy intercepts the request before the MCP source runs. The UI shows “ASK · Not executed” and the agent task returns without a terminal conclusion.' },
+      { nodes: ['browser','approval','gateway','mcp','lakebase'], edges: ['gateway-approval','gateway-mcp','mcp-lakebase'], html: '<strong>Authorize and replay.</strong> The operator approves in the native Gateway experience. The runtime replays the exact serialized request; Gateway now authorizes the write and the MCP tool creates the work order.' },
+      { nodes: ['lakebase','app','browser','models'], edges: ['lakebase-app','browser-app','app-models'], html: '<strong>Scheduled and auditable.</strong> The incident receives one final four-part conclusion, the footer shows actual tokens/cost/tool calls, and closing the overlay returns to the live command center with maintenance scheduled.' }
+    ];
+
+    const toolData = {
+      telemetry: { name: 'get_asset_telemetry', kind: 'Read-only evidence acquisition.', inputs: '<code>asset_id</code> (required). The asset is supplied by the autonomous incident prompt—not typed by the presenter.', effect: 'Reads the bounded current fleet snapshot from the repository. Returns vibration, warning threshold, flow, current, trend, and timestamp. It does not mutate plant or maintenance state.' },
+      risk: { name: 'assess_failure_risk', kind: 'Deterministic risk analysis over recent evidence.', inputs: '<code>asset_id</code> and optional <code>maintenance_window_days</code> (default 21).', effect: 'Reads up to 12 recent telemetry points and evaluates persistence, direction, correlated current/temperature, and threshold samples. Returns probability, risk band, and evidence; no business write.' },
+      prepare: { name: 'prepare_work_order', kind: 'Non-binding maintenance preparation.', inputs: '<code>asset_id</code>, <code>action</code>, and <code>incident_id</code>.', effect: 'Verifies the asset and returns bearing part BRG-6312-C3, availability, a 3.5-hour estimate, and the next available maintenance window. No work order is created.' },
+      submit: { name: 'submit_work_order', kind: 'Governed operational write.', inputs: '<code>asset_id</code>, <code>action</code>, <code>incident_id</code>, and <code>planned_window</code>.', effect: 'Request-time policy returns ASK. Only after native approval does the exact request reach the source tool, which idempotently creates a scheduled Lakebase work order keyed from the incident.' }
+    };
+
+    const detail = document.getElementById('node-detail');
+    const nodes = [...document.querySelectorAll('.node')];
+    const edges = [...document.querySelectorAll('.edge')];
+    const renderNode = (key) => {
+      const data = nodeData[key];
+      nodes.forEach(n => n.classList.toggle('active', n.dataset.node === key));
+      detail.innerHTML = `<div class="detail-overline">${data.overline}</div><h3>${data.title}</h3><p>${data.body}</p><ul class="detail-list">${data.facts.map(([a,b]) => `<li><strong>${a}</strong>${b}</li>`).join('')}</ul><div class="detail-badge">${data.badge}</div>`;
+    };
+    nodes.forEach(node => {
+      node.addEventListener('click', () => renderNode(node.dataset.node));
+      node.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); renderNode(node.dataset.node); } });
+    });
+
+    document.querySelectorAll('[data-lens]').forEach(button => button.addEventListener('click', () => {
+      document.querySelectorAll('[data-lens]').forEach(b => b.classList.toggle('active', b === button));
+      const lens = button.dataset.lens;
+      [...nodes, ...edges].forEach(item => item.classList.toggle('dimmed', lens !== 'all' && !(item.dataset.tags || '').split(' ').includes(lens)));
+      nodes.forEach(n => n.classList.remove('spotlight'));
+      edges.forEach(e => e.classList.remove('spotlight'));
+    }));
+
+    let storyIndex = 0;
+    const showStory = index => {
+      storyIndex = (index + story.length) % story.length;
+      document.querySelectorAll('.story-step').forEach((el, i) => el.classList.toggle('active', i === storyIndex));
+      document.getElementById('story-detail').innerHTML = story[storyIndex].html;
+      const activeNodes = new Set(story[storyIndex].nodes);
+      const activeEdges = new Set(story[storyIndex].edges);
+      nodes.forEach(n => { n.classList.remove('dimmed'); n.classList.toggle('spotlight', activeNodes.has(n.dataset.node)); });
+      edges.forEach(e => { e.classList.remove('dimmed'); e.classList.toggle('spotlight', activeEdges.has(e.dataset.edge)); });
+    };
+    document.querySelectorAll('.story-step').forEach((el, i) => el.addEventListener('click', () => showStory(i)));
+    document.getElementById('story-prev').addEventListener('click', () => showStory(storyIndex - 1));
+    document.getElementById('story-next').addEventListener('click', () => showStory(storyIndex + 1));
+    document.getElementById('start-tour').addEventListener('click', () => { document.getElementById('architecture').scrollIntoView(); setTimeout(() => showStory(0), 350); });
+
+    const renderTool = key => {
+      const data = toolData[key];
+      document.querySelectorAll('.tool-card').forEach(card => card.classList.toggle('active', card.dataset.tool === key));
+      document.getElementById('tool-detail').innerHTML = `<div><h4>Selected tool</h4><h3>${data.name}</h3><p>${data.kind}</p></div><div><h4>Inputs</h4><p>${data.inputs}</p></div><div><h4>Data and side effect</h4><p>${data.effect}</p></div>`;
+    };
+    document.querySelectorAll('.tool-card').forEach(card => card.addEventListener('click', () => renderTool(card.dataset.tool)));
+    document.querySelectorAll('[data-tool-filter]').forEach(button => button.addEventListener('click', () => {
+      document.querySelectorAll('[data-tool-filter]').forEach(b => b.classList.toggle('active', b === button));
+      const kind = button.dataset.toolFilter;
+      document.querySelectorAll('.tool-card').forEach(card => card.classList.toggle('hidden', kind !== 'all' && card.dataset.kind !== kind));
+    }));
+
+    const policySelect = document.getElementById('policy-tool');
+    const policyStatus = document.getElementById('policy-status');
+    const policyBody = document.getElementById('policy-body');
+    const approveButton = document.getElementById('approve-policy');
+    document.getElementById('evaluate-policy').addEventListener('click', () => {
+      const tool = policySelect.value;
+      if (tool === 'submit_work_order') {
+        policyStatus.textContent = 'ASK · NOT EXECUTED';
+        policyStatus.className = 'result-status ask';
+        policyBody.innerHTML = '<strong>Execution is paused before the source tool.</strong><br>The request bytes and Gateway elicitation are retained. The App shows the native approval handoff; it does not create a work order or generate a successful conclusion.';
+        approveButton.hidden = false;
+      } else {
+        policyStatus.textContent = 'ALLOW · EXECUTED';
+        policyStatus.className = 'result-status';
+        policyBody.innerHTML = `<strong>${tool} may execute autonomously.</strong><br>The request still traverses Unity Gateway under the operator’s identity and appears as its own runtime activity event.`;
+        approveButton.hidden = true;
+      }
+    });
+    approveButton.addEventListener('click', () => {
+      policyStatus.textContent = 'APPROVED · ALLOW';
+      policyStatus.className = 'result-status approved';
+      policyBody.innerHTML = '<strong>The exact pending request is replayed.</strong><br>Gateway authorization now permits the MCP source call. A scheduled work order is created, the incident completes, and the agent emits its final response.';
+      approveButton.hidden = true;
+    });
+    policySelect.addEventListener('change', () => {
+      policyStatus.textContent = 'READY'; policyStatus.className = 'result-status'; approveButton.hidden = true;
+      policyBody.textContent = 'Evaluate the selected request to see the policy result.';
+    });
+
+    const progress = document.getElementById('progress');
+    const updateProgress = () => {
+      const height = document.documentElement.scrollHeight - window.innerHeight;
+      progress.style.transform = `scaleX(${height > 0 ? window.scrollY / height : 0})`;
+    };
+    document.addEventListener('scroll', updateProgress, { passive: true });
+    updateProgress();
+  </script>
+</body>
+</html>
