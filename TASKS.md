@@ -19,6 +19,8 @@ existing `classic_stable_realtime_demos_catalog` and the dedicated
 | Agent | Run concurrent incident evaluations and route GPT-5.1 to Sonnet 4.5 for high-risk reasoning | Complete |
 | Governance | Expose four business tools through Unity Gateway MCP | Complete |
 | Governance | Attach native `ASK` policy to `submit_work_order` and preserve the real approval handoff | Complete |
+| Governance | Keep `ASK` as a pure pause and emit one conclusion only after successful replay | Complete |
+| Agent | Require prospective, tool-specific decision rationales before execution | Complete |
 | UI | Build the live fleet command center, agent-active cues, alerts, and invocation history | Complete |
 | UI | Build the two-pane incident overlay, follow-up input, dynamic activity timeline, and footer totals | Complete |
 | Quality | Pass Ruff, six pytest tests, TypeScript checking, and the Vite production build | Complete |

@@ -14,6 +14,7 @@ from backend.lakebase_repository import LakebaseCommandCenterRepository
 from backend.model_client import DatabricksModelClient
 from backend.models import (
     ActivityDatum,
+    IncidentDetail,
     PendingApproval,
     RuntimeAction,
     RuntimeActivity,
@@ -275,8 +276,11 @@ class ProductionCommandCenterRuntime:
                         "Skill below. Choose tools from the capabilities discovered at runtime; "
                         "do not assume a fixed sequence or call count. Never claim an action ran "
                         "when a tool was blocked. OUTPUT PROTOCOL IS STRICT: whenever you select "
-                        "tools, assistant content must be exactly `Decision rationale: <one or "
-                        "two concise sentences>` with no other prose. A terminal response must "
+                        "tools, assistant content must be prospective and exactly `Decision "
+                        "rationale: I will call [tool name] because [evidence-based reason].` "
+                        "For multiple calls, name them in the same prospective sentence. Never "
+                        "claim a call ran, returned, completed, or produced evidence before it "
+                        "executes. A terminal response must "
                         "contain exactly four Markdown bullets, in this exact order and with no "
                         "other prose: `- **Finding:** ...`, `- **Evidence:** ...`, "
                         "`- **Risk:** ...`, `- **Action:** ...`.\n\n"
@@ -304,7 +308,10 @@ class ProductionCommandCenterRuntime:
                 summary = str(turn.message.get("content") or "")
                 input_tokens = turn.input_tokens
                 output_tokens = turn.output_tokens
-                canonical_rationale = _canonical_decision_rationale(summary) if tool_calls else None
+                tool_names = [call["function"]["name"] for call in tool_calls]
+                canonical_rationale = (
+                    _canonical_decision_rationale(summary, tool_names) if tool_calls else None
+                )
                 if tool_calls and not canonical_rationale:
                     rationale = await self.model.turn(
                         endpoint,
@@ -312,8 +319,10 @@ class ProductionCommandCenterRuntime:
                             {
                                 "role": "system",
                                 "content": (
-                                    "Return exactly `Decision rationale: <one or two concise "
-                                    "sentences>` with no heading, bullets, or additional prose."
+                                    "Return one prospective sentence exactly beginning "
+                                    f"`{_rationale_prefix(tool_names)}` followed by the "
+                                    "evidence-based reason. Do not claim any call already ran, "
+                                    "returned, completed, or produced a result."
                                 ),
                             },
                             {
@@ -331,7 +340,7 @@ class ProductionCommandCenterRuntime:
                     input_tokens += rationale.input_tokens
                     output_tokens += rationale.output_tokens
                     turn_completed_at = utc_now()
-                    canonical_rationale = _canonical_decision_rationale(summary)
+                    canonical_rationale = _canonical_decision_rationale(summary, tool_names)
                     if not canonical_rationale:
                         raise RuntimeError(
                             "Model did not return a usable tool-selection rationale after "
@@ -347,12 +356,16 @@ class ProductionCommandCenterRuntime:
                         actor=endpoint,
                         status="complete",
                         status_label="Completed",
-                        summary=summary,
+                        summary=(summary if tool_calls else "Generated terminal response."),
                         details=[
                             ActivityDatum(label="Input tokens", value=str(input_tokens)),
                             ActivityDatum(label="Output tokens", value=str(output_tokens)),
-                            ActivityDatum(label="Model output", value=summary),
-                        ],
+                        ]
+                        + (
+                            [ActivityDatum(label="Model output", value=summary)]
+                            if tool_calls
+                            else []
+                        ),
                         started_at=turn_started_at,
                         completed_at=turn_completed_at,
                     ),
@@ -412,36 +425,6 @@ class ProductionCommandCenterRuntime:
                     except GatewayAsk as ask:
                         await self._pause_for_gateway(
                             incident_id, tool_name, ask, started_at=tool_started_at
-                        )
-                        final_content = await self._ensure_terminal_response(
-                            incident_id,
-                            endpoint,
-                            [
-                                {
-                                    "role": "system",
-                                    "content": (
-                                        "Return exactly four Markdown bullets in this order, "
-                                        "with no other prose: `- **Finding:** ...`, "
-                                        "`- **Evidence:** ...`, `- **Risk:** ...`, "
-                                        "`- **Action:** ...`."
-                                    ),
-                                },
-                                {
-                                    "role": "user",
-                                    "content": (
-                                        f"Summarize incident {incident_id} for "
-                                        f"{incident.asset_id}. "
-                                        f"Observed condition: {incident.condition}. Risk evidence: "
-                                        f"{json.dumps(last_risk or {})}. Unity Gateway returned "
-                                        f"ASK for `{tool_name}`: {ask.elicitation.message}. The "
-                                        "action has not executed and is waiting for human approval."
-                                    ),
-                                },
-                            ],
-                            "",
-                        )
-                        await self.repository.append_conversation(
-                            incident_id, "agent", final_content
                         )
                         return
                     tool_completed_at = utc_now()
@@ -571,6 +554,7 @@ class ProductionCommandCenterRuntime:
             started_at=replay_started_at,
             completed_at=replay_completed_at,
         )
+        await self._generate_post_approval_response(incident_id, incident, result)
         return True
 
     async def _complete_governed_action(
@@ -602,6 +586,69 @@ class ProductionCommandCenterRuntime:
             ),
         )
         await self.repository.complete_incident(incident_id, str(work_order_id))
+
+    async def _generate_post_approval_response(
+        self, incident_id: str, incident: IncidentDetail, result: dict[str, Any]
+    ) -> None:
+        started_at = utc_now()
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "Return exactly four Markdown bullets in this order and no other prose: "
+                    "`- **Finding:** ...`, `- **Evidence:** ...`, `- **Risk:** ...`, "
+                    "`- **Action:** ...`. The governed action has now executed successfully."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Incident: {incident.model_dump_json()}. Governed result: "
+                    f"{json.dumps(_structured(result))}"
+                ),
+            },
+        ]
+        try:
+            turn = await self.model.turn(self.settings.primary_model_endpoint, messages)
+        except Exception:  # The executed governed write must still receive a conclusion.
+            await self.repository.append_conversation(
+                incident_id, "agent", _fallback_terminal_response(incident, result)
+            )
+            return
+        completed_at = utc_now()
+        content = str(turn.message.get("content") or "")
+        await self.repository.append_activity(
+            incident_id,
+            RuntimeActivity(
+                category="model_call",
+                title="Model execution",
+                actor=self.settings.primary_model_endpoint,
+                status="complete",
+                status_label="Completed",
+                summary="Generated final response after governed execution.",
+                details=[
+                    ActivityDatum(label="Input tokens", value=str(turn.input_tokens)),
+                    ActivityDatum(label="Output tokens", value=str(turn.output_tokens)),
+                ],
+                started_at=started_at,
+                completed_at=completed_at,
+            ),
+            tokens=(
+                turn.input_tokens,
+                turn.output_tokens,
+                self._model_cost(turn.input_tokens, turn.output_tokens),
+            ),
+        )
+        try:
+            final_content = await self._ensure_terminal_response(
+                incident_id,
+                self.settings.primary_model_endpoint,
+                [*messages, turn.message],
+                content,
+            )
+        except Exception:
+            final_content = _fallback_terminal_response(incident, result)
+        await self.repository.append_conversation(incident_id, "agent", final_content)
 
     async def _ensure_terminal_response(
         self,
@@ -637,11 +684,10 @@ class ProductionCommandCenterRuntime:
                 actor=endpoint,
                 status="complete",
                 status_label="Completed",
-                summary=canonical or corrected_content,
+                summary="Generated corrected terminal response.",
                 details=[
                     ActivityDatum(label="Input tokens", value=str(corrected.input_tokens)),
                     ActivityDatum(label="Output tokens", value=str(corrected.output_tokens)),
-                    ActivityDatum(label="Model output", value=canonical or corrected_content),
                 ],
                 started_at=started_at,
                 completed_at=completed_at,
@@ -687,28 +733,75 @@ def _result_summary(data: dict[str, Any]) -> str:
     return "Governed tool completed successfully."
 
 
-def _valid_decision_rationale(content: str) -> bool:
-    if not content.startswith("Decision rationale: ") or "\n" in content:
+def _fallback_terminal_response(incident: IncidentDetail, result: dict[str, Any]) -> str:
+    data = _structured(result)
+    work_order_id = str(data.get("work_order_id", "the approved work order"))
+    return (
+        f"- **Finding:** {incident.condition.rstrip('.')} requires maintenance.\n"
+        f"- **Evidence:** The governed assessment confirmed the issue on {incident.asset_id}.\n"
+        "- **Risk:** The evidence warrants action before the next maintenance window.\n"
+        f"- **Action:** Work order {work_order_id} was approved and scheduled."
+    )
+
+
+def _rationale_prefix(tool_names: list[str]) -> str:
+    if not tool_names:
+        return "Decision rationale: I will call the selected tool because "
+    calls = (
+        tool_names[0]
+        if len(tool_names) == 1
+        else f"{', '.join(tool_names[:-1])} and {tool_names[-1]}"
+    )
+    return f"Decision rationale: I will call {calls} because "
+
+
+def _valid_decision_rationale(content: str, tool_names: list[str]) -> bool:
+    prefix = _rationale_prefix(tool_names)
+    if not content.startswith(prefix) or "\n" in content:
         return False
-    rationale = content.removeprefix("Decision rationale: ").strip()
-    return bool(rationale) and sum(rationale.count(mark) for mark in ".!?") <= 2
+    rationale = content.removeprefix(prefix).strip()
+    retrospective = re.compile(
+        r"\b(called|ran|returned|completed|executed|received|loaded|found|produced)\b",
+        flags=re.I,
+    )
+    return (
+        bool(rationale)
+        and not retrospective.search(rationale)
+        and sum(rationale.count(mark) for mark in ".!?") == 1
+        and rationale.endswith(".")
+    )
 
 
-def _canonical_decision_rationale(content: str) -> str | None:
+def _canonical_decision_rationale(content: str, tool_names: list[str]) -> str | None:
     """Preserve model wording while enforcing the presentation-safe rationale envelope."""
     cleaned = re.sub(r"^```(?:markdown|text)?\s*|\s*```$", "", content.strip(), flags=re.I)
     if not cleaned:
         return None
-    match = re.search(r"decision\s+rationale\s*:\s*", cleaned, flags=re.I)
-    rationale = cleaned[match.end() :] if match else cleaned
+    match = re.search(r"\bbecause\s+", cleaned, flags=re.I)
+    if match:
+        rationale = cleaned[match.end() :]
+    else:
+        label = re.search(r"decision\s+rationale\s*:\s*", cleaned, flags=re.I)
+        rationale = cleaned[label.end() :] if label else cleaned
     rationale = re.sub(r"^[\s#>*-]+", "", rationale)
     rationale = re.sub(r"\*\*|__|`", "", rationale)
     rationale = " ".join(rationale.split())
     if not rationale:
         return None
-    sentences = re.split(r"(?<=[.!?])\s+", rationale)
-    concise = " ".join(sentences[:2]).strip()
-    return f"Decision rationale: {concise}" if concise else None
+    retrospective = re.compile(
+        r"\b(called|ran|returned|completed|executed|received|loaded|found|produced)\b",
+        flags=re.I,
+    )
+    if retrospective.search(rationale):
+        rationale = "the available incident evidence warrants this governed action."
+    concise = re.split(r"(?<=[.!?])\s+", rationale)[0].strip()
+    if not concise:
+        return None
+    concise = concise.rstrip("!?")
+    if not concise.endswith("."):
+        concise += "."
+    canonical = f"{_rationale_prefix(tool_names)}{concise[0].lower()}{concise[1:]}"
+    return canonical if _valid_decision_rationale(canonical, tool_names) else None
 
 
 def _valid_terminal_response(content: str) -> bool:

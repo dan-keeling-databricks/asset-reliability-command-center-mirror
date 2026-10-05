@@ -7,6 +7,7 @@ import pytest
 
 from backend.gateway import GatewayAsk, GatewayElicitation
 from backend.identity import OboIdentityRegistry
+from backend.models import IncidentDetail, PendingApproval
 from backend.production_runtime import (
     ProductionCommandCenterRuntime,
     _canonical_decision_rationale,
@@ -43,13 +44,82 @@ async def test_gateway_ask_waits_for_explicit_approval_replay() -> None:
     runtime._spawn.assert_not_called()
 
 
-def test_tool_selection_protocol_accepts_only_decision_rationale() -> None:
-    assert _valid_decision_rationale(
-        "Decision rationale: Current telemetry is required before assessing failure risk."
+@pytest.mark.asyncio
+async def test_repeated_gateway_ask_leaves_waiting_state_unchanged() -> None:
+    runtime = ProductionCommandCenterRuntime.__new__(ProductionCommandCenterRuntime)
+    incident = SimpleNamespace(status="waiting", scenario_id="scenario-1")
+    runtime.repository = SimpleNamespace(
+        incident=AsyncMock(return_value=incident),
+        append_activity=AsyncMock(),
+        append_conversation=AsyncMock(),
+        complete_incident=AsyncMock(),
     )
-    assert not _valid_decision_rationale("I will inspect telemetry.")
-    assert not _valid_decision_rationale("Decision rationale: First. Second. Third.")
-    assert not _valid_decision_rationale("Decision rationale: First.\nExtra prose")
+    runtime.identities = OboIdentityRegistry()
+    runtime.identities.capture("scenario-1", "live-token")
+    repeated = GatewayAsk(
+        '{"method":"tools/call"}',
+        GatewayElicitation("approval-1", "https://example.test/approval", "Still required"),
+    )
+    runtime.gateway = SimpleNamespace(replay=AsyncMock(side_effect=repeated))
+    pending = PendingApproval(
+        serialized_request='{"method":"tools/call"}',
+        elicitation_id="approval-1",
+        approval_url="https://example.test/approval",
+        message="Approval required",
+        tool_name="submit_work_order",
+    )
+
+    assert await runtime._retry_pending("incident-1", pending) is False
+    runtime.repository.append_activity.assert_not_awaited()
+    runtime.repository.append_conversation.assert_not_awaited()
+    runtime.repository.complete_incident.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_post_approval_model_failure_uses_one_strict_fallback() -> None:
+    runtime = ProductionCommandCenterRuntime.__new__(ProductionCommandCenterRuntime)
+    runtime.settings = SimpleNamespace(primary_model_endpoint="primary-model")
+    runtime.model = SimpleNamespace(turn=AsyncMock(side_effect=RuntimeError("model unavailable")))
+    runtime.repository = SimpleNamespace(append_conversation=AsyncMock())
+    incident = IncidentDetail(
+        scenario_id="scenario-1",
+        asset_id="P-204",
+        title="Bearing risk",
+        condition="Persistent drive-end vibration.",
+        trigger_prompt="Assess the alert.",
+    )
+
+    await runtime._generate_post_approval_response(
+        "incident-1",
+        incident,
+        {"result": {"structuredContent": {"work_order_id": "WO-10482"}}},
+    )
+
+    runtime.repository.append_conversation.assert_awaited_once()
+    role, content = runtime.repository.append_conversation.await_args.args[1:]
+    assert role == "agent"
+    assert _valid_terminal_response(content)
+    assert "WO-10482" in content
+
+
+def test_tool_selection_protocol_accepts_only_decision_rationale() -> None:
+    tools = ["get_asset_telemetry"]
+    assert _valid_decision_rationale(
+        "Decision rationale: I will call get_asset_telemetry because current telemetry is "
+        "required before assessing failure risk.",
+        tools,
+    )
+    assert not _valid_decision_rationale("I will inspect telemetry.", tools)
+    for verb in ("called", "ran", "returned", "completed", "executed", "found"):
+        assert not _valid_decision_rationale(
+            f"Decision rationale: I will call get_asset_telemetry because it {verb} evidence.",
+            tools,
+        )
+    assert _valid_decision_rationale(
+        "Decision rationale: I will call get_asset_telemetry and assess_failure_risk because "
+        "the threshold crossing needs telemetry and a risk estimate.",
+        ["get_asset_telemetry", "assess_failure_risk"],
+    )
 
 
 def test_terminal_protocol_requires_exactly_four_ordered_markdown_bullets() -> None:
@@ -69,15 +139,18 @@ def test_terminal_protocol_requires_exactly_four_ordered_markdown_bullets() -> N
 def test_decision_rationale_is_canonicalized_without_discarding_model_wording() -> None:
     assert _canonical_decision_rationale(
         "```text\n**Decision rationale:**\nTelemetry is required first. "
-        "The risk tool will then assess persistence. Extra prose must be removed.\n```"
+        "Extra prose must be removed.\n```",
+        ["get_asset_telemetry"],
     ) == (
-        "Decision rationale: Telemetry is required first. "
-        "The risk tool will then assess persistence."
+        "Decision rationale: I will call get_asset_telemetry because telemetry is required first."
     )
-    assert _canonical_decision_rationale("I will inspect governed telemetry first.") == (
-        "Decision rationale: I will inspect governed telemetry first."
+    assert _canonical_decision_rationale(
+        "The tool returned a high-risk result.", ["prepare_work_order"]
+    ) == (
+        "Decision rationale: I will call prepare_work_order because the available incident "
+        "evidence warrants this governed action."
     )
-    assert _canonical_decision_rationale("") is None
+    assert _canonical_decision_rationale("", ["get_asset_telemetry"]) is None
 
 
 def test_terminal_response_is_canonicalized_without_discarding_model_wording() -> None:

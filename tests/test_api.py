@@ -95,7 +95,7 @@ def test_trigger_runs_generic_activity_stream_and_waits_for_approval() -> None:
             activity for activity in incident["activities"] if activity["status"] == "waiting"
         )
         assert waiting["action"]["endpoint"].endswith("/approve")
-        assert incident["conversation"][-1]["content"].startswith("- **Finding:**")
+        assert incident["conversation"] == []
         tool_titles = {
             activity["title"]
             for activity in incident["activities"]
@@ -112,6 +112,10 @@ def test_trigger_runs_generic_activity_stream_and_waits_for_approval() -> None:
         assert {activity["title"] for activity in model_activities} == {"Model execution"}
         assert all(
             any(detail["label"] == "Model output" for detail in activity["details"])
+            for activity in model_activities
+        )
+        assert all(
+            "Generated terminal response" not in activity["summary"]
             for activity in model_activities
         )
 
@@ -143,7 +147,26 @@ def test_approval_and_follow_up_complete_incident() -> None:
             if activity["title"] == "submit_work_order" and activity["category"] == "tool_call"
         )
         assert submit["status_label"] == "APPROVED · ALLOW"
-        assert incident["activities"][-1]["category"] == "tool_result"
+        assert any(activity["category"] == "tool_result" for activity in incident["activities"])
+        conclusions = [
+            turn["content"]
+            for turn in incident["conversation"]
+            if turn["role"] == "agent" and turn["content"].startswith("- **Finding:**")
+        ]
+        assert len(conclusions) == 1
+        assert conclusions[0].splitlines() == [
+            "- **Finding:** Persistent drive-end bearing vibration excursion.",
+            "- **Evidence:** Vibration reached 5.2 mm/s and continued rising.",
+            "- **Risk:** 87% likelihood of failure before the next maintenance window.",
+            "- **Action:** Work order WO-10482 scheduled for the next available outage.",
+        ]
+        terminal = conclusions[0]
+        assert all(activity["summary"] != terminal for activity in incident["activities"])
+        assert all(
+            detail["value"] != terminal
+            for activity in incident["activities"]
+            for detail in activity["details"]
+        )
 
         follow_up = client.post(
             f"/api/incidents/{incident_id}/follow-up",

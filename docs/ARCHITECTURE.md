@@ -81,10 +81,12 @@ Lakeflow Declarative Pipelines Real-Time Mode. RTM ingestion owns no alert or ag
    `get_asset_telemetry`, `assess_failure_risk`, `prepare_work_order`, and
    `submit_work_order`.
 6. The custom policy returns native `ASK` for `submit_work_order`. The runtime stores the
-   exact serialized request, stops before execution, and exposes the native approval URL.
+   exact serialized request, stops before execution, and exposes the native approval URL. The
+   approval card is the only waiting-state output; no terminal conclusion is generated yet.
 7. After approval, the runtime replays those exact bytes. Gateway authorization creates the
-   work order, and the run completes. A denial or error is recorded rather than represented
-   as successful execution.
+   work order, then the model generates one four-part conclusion and the run completes. A
+   repeated `ASK` leaves the existing card unchanged. A denial or error is recorded rather
+   than represented as successful execution.
 
 Independent incidents run in separate asyncio tasks, so normal transients can be evaluated
 concurrently. OBO tokens remain in process memory; only identity subjects are persisted.

@@ -269,6 +269,32 @@ class LocalCommandCenterRuntime:
                     ],
                 )
             )
+            conclusion = (
+                "- **Finding:** Persistent drive-end bearing vibration excursion.\n"
+                "- **Evidence:** Vibration reached 5.2 mm/s and continued rising.\n"
+                "- **Risk:** 87% likelihood of failure before the next maintenance window.\n"
+                "- **Action:** Work order WO-10482 scheduled for the next available outage."
+            )
+            current.activities.append(
+                RuntimeActivity(
+                    category="model_call",
+                    title="Model execution",
+                    actor="databricks-claude-sonnet-4-5",
+                    status="complete",
+                    status_label="Completed",
+                    summary="Generated final response after governed execution.",
+                    details=[
+                        ActivityDatum(label="Input tokens", value="684"),
+                        ActivityDatum(label="Output tokens", value="96"),
+                    ],
+                )
+            )
+            current.conversation.append(ConversationTurn(role="agent", content=conclusion))
+            current.totals.input_tokens += 684
+            current.totals.output_tokens += 96
+            current.totals.estimated_cost_usd = round(
+                current.totals.estimated_cost_usd + 0.0042, 4
+            )
             current.narrative.append(
                 "Approval was granted once. Work order WO-10482 is now scheduled."
             )
@@ -428,8 +454,8 @@ class LocalCommandCenterRuntime:
                 status="complete",
                 status_label="Completed",
                 summary=(
-                    "Decision rationale: The threshold pattern requires governed evidence "
-                    "before it can be classified."
+                    "Decision rationale: I will call assess_failure_risk because the threshold "
+                    "pattern requires governed evidence before it can be classified."
                 ),
                 details=[
                     ActivityDatum(label="Input tokens", value="412"),
@@ -437,8 +463,9 @@ class LocalCommandCenterRuntime:
                     ActivityDatum(
                         label="Model output",
                         value=(
-                            "Decision rationale: The threshold pattern requires governed "
-                            "evidence before it can be classified."
+                            "Decision rationale: I will call assess_failure_risk because the "
+                            "threshold pattern requires governed evidence before it can be "
+                            "classified."
                         ),
                     ),
                 ],
@@ -533,8 +560,9 @@ class LocalCommandCenterRuntime:
                     status="complete",
                     status_label="Completed",
                     summary=(
-                        "Decision rationale: The sustained threshold crossing requires current "
-                        "telemetry and maintenance evidence."
+                        "Decision rationale: I will call get_asset_telemetry because the "
+                        "sustained threshold crossing requires current telemetry and maintenance "
+                        "evidence."
                     ),
                     details=[
                         ActivityDatum(label="Input tokens", value="536"),
@@ -542,8 +570,9 @@ class LocalCommandCenterRuntime:
                         ActivityDatum(
                             label="Model output",
                             value=(
-                                "Decision rationale: The sustained threshold crossing requires "
-                                "current telemetry and maintenance evidence."
+                                "Decision rationale: I will call get_asset_telemetry because the "
+                                "sustained threshold crossing requires current telemetry and "
+                                "maintenance evidence."
                             ),
                         ),
                     ],
@@ -587,8 +616,8 @@ class LocalCommandCenterRuntime:
                     status="complete",
                     status_label="Completed",
                     summary=(
-                        "Decision rationale: The correlated evidence warrants a formal failure "
-                        "risk assessment."
+                        "Decision rationale: I will call prepare_work_order because the high-risk "
+                        "evidence warrants a concrete maintenance plan."
                     ),
                     details=[
                         ActivityDatum(label="Input tokens", value="1,184"),
@@ -596,8 +625,8 @@ class LocalCommandCenterRuntime:
                         ActivityDatum(
                             label="Model output",
                             value=(
-                                "Decision rationale: The correlated evidence warrants a formal "
-                                "failure risk assessment."
+                                "Decision rationale: I will call prepare_work_order because the "
+                                "high-risk evidence warrants a concrete maintenance plan."
                             ),
                         ),
                         ActivityDatum(label="Risk estimate", value="87%"),
@@ -666,32 +695,6 @@ class LocalCommandCenterRuntime:
                     "The agent prepared a bearing-replacement action, but Unity Gateway stopped "
                     "execution because an operational write requires human approval.",
                 ]
-            )
-            current.conversation.append(
-                ConversationTurn(
-                    role="agent",
-                    content=(
-                        "- **Finding:** Persistent drive-end bearing vibration excursion.\n"
-                        "- **Evidence:** Vibration reached 5.2 mm/s and continued rising.\n"
-                        "- **Risk:** 87% likelihood of failure before the next maintenance "
-                        "window.\n"
-                        "- **Action:** Bearing-replacement work order prepared; submission is "
-                        "waiting for approval."
-                    ),
-                )
-            )
-            current.activities.append(
-                RuntimeActivity(
-                    category="model_call",
-                    title="Model execution",
-                    actor="databricks-claude-sonnet-4-5",
-                    status="complete",
-                    status_label="Completed",
-                    summary=current.conversation[-1].content,
-                    details=[
-                        ActivityDatum(label="Model output", value=current.conversation[-1].content)
-                    ],
-                )
             )
             alert = next(item for item in state.alerts if item.id == alert_id)
             alert.status = "action_required"
