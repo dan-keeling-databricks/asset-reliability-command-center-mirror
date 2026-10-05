@@ -36,6 +36,7 @@ existing `classic_stable_realtime_demos_catalog` and the dedicated
 | UI feedback round 1 | Unify incident conversation, prompt context, event icons, and execution timeline | In review |
 | Multi-user control | Persist one shared shift operator with audited, concurrency-safe handover | Complete on `feat/shared-shift-operator` |
 | Repository | Document architecture, manual deployment, and multi-agent worktree conventions | Complete |
+| Repository | Add a detailed technical architecture and agent-loop HTML reference | Complete on `feat/interactive_architecture` |
 | Repository | Publish the repository and feature branch to GitHub | Complete |
 
 ## Deployed resources

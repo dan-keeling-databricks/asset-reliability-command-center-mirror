@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Technical architecture and agent-loop reference for the Asset Reliability Command Center.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%23232f3e'/%3E%3Cpath d='M15 18h34v7H15zm0 11h34v7H15zm0 11h22v7H15z' fill='white'/%3E%3C/svg%3E">
+  <title>Asset Reliability Command Center — Technical Reference</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --text: #18212a;
+      --muted: #536170;
+      --faint: #596570;
+      --border: #d8dee4;
+      --border-dark: #aeb8c2;
+      --bg: #f5f7f8;
+      --panel: #ffffff;
+      --panel-alt: #f0f3f5;
+      --sidebar: #202a34;
+      --sidebar-text: #d9e0e5;
+      --blue: #1769aa;
+      --blue-bg: #eaf3fa;
+      --green: #18794e;
+      --green-bg: #eaf6ef;
+      --amber: #875c00;
+      --amber-bg: #fff5d6;
+      --red: #b42318;
+      --red-bg: #fff0ee;
+      --violet: #6246a5;
+      --violet-bg: #f1edfb;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --content: 1180px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; color: var(--text); background: var(--bg); font: 14px/1.6 var(--sans); }
+    a { color: var(--blue); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+    code, pre { font-family: var(--mono); }
+    code { font-size: .9em; }
+    button { font: inherit; }
+
+    .layout { min-height: 100vh; display: grid; grid-template-columns: 270px minmax(0, 1fr); }
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 26px 20px;
+      background: var(--sidebar);
+      color: var(--sidebar-text);
+      overflow-y: auto;
+    }
+    .doc-id { padding: 0 8px 22px; border-bottom: 1px solid rgba(255,255,255,.13); }
+    .doc-id strong { display: block; color: #fff; font-size: 14px; line-height: 1.35; }
+    .doc-id span { display: block; margin-top: 7px; color: #9eabb6; font: 11px/1.4 var(--mono); }
+    .toc { padding-top: 18px; }
+    .toc-label { padding: 0 8px 8px; color: #87949e; font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+    .toc a { display: block; padding: 7px 8px; border-radius: 5px; color: #c2ccd3; text-decoration: none; font-size: 12px; }
+    .toc a:hover, .toc a.active { color: #fff; background: rgba(255,255,255,.09); }
+    .sidebar-note { margin: 22px 8px 0; padding-top: 15px; border-top: 1px solid rgba(255,255,255,.13); color: #9eabb6; font-size: 10px; }
+
+    main { min-width: 0; }
+    .page { width: min(var(--content), calc(100% - 64px)); margin: 0 auto; padding: 58px 0 100px; }
+    header { padding-bottom: 38px; border-bottom: 1px solid var(--border-dark); }
+    .document-type { color: var(--faint); font: 700 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+    h1 { max-width: 860px; margin: 13px 0 12px; font-size: clamp(32px, 4vw, 49px); line-height: 1.08; letter-spacing: -.035em; }
+    .abstract { max-width: 860px; margin: 0; color: var(--muted); font-size: 16px; }
+    .metadata { margin-top: 28px; display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--border); background: var(--panel); }
+    .metadata div { padding: 13px 15px; border-right: 1px solid var(--border); }
+    .metadata div:last-child { border-right: 0; }
+    .metadata dt { color: var(--faint); font: 700 9px/1.2 var(--mono); letter-spacing: .07em; text-transform: uppercase; }
+    .metadata dd { margin: 5px 0 0; font-size: 12px; font-weight: 650; }
+
+    section { padding: 54px 0 10px; scroll-margin-top: 20px; }
+    .section-number { color: var(--faint); font: 700 10px/1 var(--mono); }
+    h2 { margin: 6px 0 8px; font-size: 28px; line-height: 1.2; letter-spacing: -.025em; }
+    h3 { margin: 28px 0 8px; font-size: 18px; line-height: 1.3; }
+    h4 { margin: 20px 0 7px; font-size: 14px; }
+    .section-lead { max-width: 850px; margin: 0 0 24px; color: var(--muted); font-size: 15px; }
+    p { margin: 8px 0 14px; }
+    ul, ol { margin: 8px 0 16px; padding-left: 22px; }
+    li { margin: 5px 0; }
+
+    .notice { margin: 18px 0; padding: 15px 17px; border: 1px solid var(--border); border-left: 4px solid var(--blue); background: var(--panel); }
+    .notice.warning { border-left-color: var(--amber); background: #fffdf6; }
+    .notice strong { display: block; margin-bottom: 3px; }
+    .notice p { margin: 0; color: var(--muted); font-size: 12px; }
+
+    .panel { border: 1px solid var(--border); background: var(--panel); }
+    .panel-head { padding: 13px 16px; border-bottom: 1px solid var(--border); background: var(--panel-alt); display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+    .panel-head strong { font-size: 12px; }
+    .panel-head span { color: var(--faint); font: 10px/1 var(--mono); }
+    .panel-body { padding: 18px; }
+
+    .architecture { display: grid; gap: 10px; }
+    .arch-row { display: grid; grid-template-columns: 115px minmax(0, 1fr); gap: 12px; align-items: stretch; }
+    .arch-label { padding: 12px; border: 1px solid var(--border); background: #e9edf0; color: var(--muted); font: 700 10px/1.35 var(--mono); text-transform: uppercase; }
+    .arch-flow { min-width: 0; padding: 12px; border: 1px solid var(--border); background: #fff; display: flex; align-items: center; gap: 6px; overflow-x: auto; }
+    .component { min-width: 120px; padding: 11px 12px; border: 1px solid var(--border-dark); background: var(--panel); }
+    .component.wide { min-width: 175px; }
+    .component.governed { border-color: #9685c5; background: var(--violet-bg); }
+    .component.store { border-color: #7aa6c5; background: var(--blue-bg); }
+    .component.compute { border-color: #82ad95; background: var(--green-bg); }
+    .component.action { border-color: #c29941; background: var(--amber-bg); }
+    .component b { display: block; font-size: 11px; line-height: 1.25; }
+    .component span { display: block; margin-top: 4px; color: var(--muted); font-size: 9px; line-height: 1.35; }
+    .arrow { min-width: 18px; color: var(--faint); text-align: center; font: 13px/1 var(--mono); }
+    .arrow.bi::before { content: "↔"; }
+    .arrow.right::before { content: "→"; }
+    .arch-notes { margin-top: 13px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .arch-notes div { padding: 12px; background: var(--panel-alt); border: 1px solid var(--border); font-size: 11px; }
+    .arch-notes strong { display: block; margin-bottom: 3px; }
+
+    table { width: 100%; border-collapse: collapse; background: var(--panel); font-size: 12px; }
+    th, td { padding: 10px 12px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--panel-alt); color: var(--muted); font-size: 10px; letter-spacing: .035em; }
+    td code { color: #1a5a88; overflow-wrap: anywhere; }
+    .table-wrap { overflow-x: auto; }
+    .status { display: inline-block; padding: 2px 6px; border-radius: 3px; font: 700 9px/1.5 var(--mono); white-space: nowrap; }
+    .status.dynamic { color: var(--green); background: var(--green-bg); }
+    .status.config { color: var(--blue); background: var(--blue-bg); }
+    .status.fixed { color: var(--red); background: var(--red-bg); }
+    .status.policy { color: var(--violet); background: var(--violet-bg); }
+
+    .loop-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; align-items: start; }
+    .loop-steps { border: 1px solid var(--border); background: var(--panel); }
+    .loop-step { appearance: none; width: 100%; border: 0; border-bottom: 1px solid var(--border); background: #fff; padding: 11px 12px; display: grid; grid-template-columns: 28px 1fr; gap: 7px; text-align: left; cursor: pointer; }
+    .loop-step:last-child { border-bottom: 0; }
+    .loop-step:hover, .loop-step.active { background: var(--blue-bg); }
+    .loop-step .n { color: var(--faint); font: 700 10px/1.5 var(--mono); }
+    .loop-step b { display: block; color: var(--text); font-size: 11px; }
+    .loop-step span { display: block; margin-top: 2px; color: var(--faint); font-size: 9px; }
+    .loop-detail { min-height: 465px; border: 1px solid var(--border); background: var(--panel); }
+    .loop-detail-head { padding: 17px 19px; border-bottom: 1px solid var(--border); }
+    .loop-detail-head small { color: var(--faint); font: 700 9px/1 var(--mono); letter-spacing: .05em; }
+    .loop-detail-head h3 { margin: 6px 0 4px; }
+    .loop-detail-head p { margin: 0; color: var(--muted); font-size: 12px; }
+    .loop-detail-body { padding: 18px 19px; }
+    .facts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); }
+    .fact { padding: 12px; background: #fff; }
+    .fact dt { color: var(--faint); font: 700 9px/1.2 var(--mono); text-transform: uppercase; }
+    .fact dd { margin: 5px 0 0; font-size: 11px; }
+    .source-ref { margin-top: 16px; padding: 10px 12px; background: var(--panel-alt); color: var(--muted); font: 10px/1.5 var(--mono); overflow-wrap: anywhere; }
+
+    pre { position: relative; margin: 13px 0; padding: 16px; overflow: auto; border: 1px solid #344251; background: #202a34; color: #e6edf2; font: 11px/1.65 var(--mono); tab-size: 2; }
+    .copy { position: absolute; top: 8px; right: 8px; padding: 4px 7px; border: 1px solid #5b6874; background: #2c3945; color: #dbe3e8; font: 9px/1.3 var(--mono); cursor: pointer; }
+    .copy:hover { background: #3a4854; }
+
+    .sequence { display: grid; grid-template-columns: 150px repeat(4, 1fr); border: 1px solid var(--border); overflow-x: auto; min-width: 820px; }
+    .seq-cell { min-height: 54px; padding: 9px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); font-size: 10px; }
+    .seq-cell:nth-child(5n) { border-right: 0; }
+    .seq-head { min-height: auto; background: var(--panel-alt); font: 700 9px/1.3 var(--mono); color: var(--muted); }
+    .seq-label { background: #fafbfb; font: 700 9px/1.35 var(--mono); color: var(--muted); }
+    .message { display: block; padding: 5px 7px; border-left: 3px solid var(--blue); background: var(--blue-bg); }
+    .message.gov { border-left-color: var(--violet); background: var(--violet-bg); }
+    .message.ask { border-left-color: var(--amber); background: var(--amber-bg); }
+
+    .state-flow { display: flex; gap: 7px; align-items: center; overflow-x: auto; padding: 15px; border: 1px solid var(--border); background: var(--panel); }
+    .state { min-width: 112px; padding: 9px; border: 1px solid var(--border-dark); background: #fff; text-align: center; font: 700 10px/1.3 var(--mono); }
+    .state.waiting { border-color: #c29941; background: var(--amber-bg); }
+    .state.done { border-color: #82ad95; background: var(--green-bg); }
+    .state.failed { border-color: #cc827a; background: var(--red-bg); }
+
+    details { border: 1px solid var(--border); background: var(--panel); margin: 9px 0; }
+    summary { padding: 11px 13px; cursor: pointer; font-weight: 650; font-size: 12px; }
+    details > div { padding: 0 13px 13px; color: var(--muted); font-size: 12px; }
+
+    .source-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .source-card { padding: 13px; border: 1px solid var(--border); background: var(--panel); }
+    .source-card code { display: block; margin-bottom: 5px; color: #1a5a88; }
+    .source-card span { color: var(--muted); font-size: 11px; }
+
+    .mobile-bar { display: none; position: sticky; top: 0; z-index: 20; padding: 9px 12px; border-bottom: 1px solid var(--border); background: rgba(255,255,255,.96); }
+    .mobile-bar button { border: 1px solid var(--border); background: #fff; padding: 6px 9px; cursor: pointer; }
+
+    @media (max-width: 920px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { position: fixed; z-index: 50; inset: 0 auto 0 0; width: 270px; transform: translateX(-100%); transition: transform .18s ease; }
+      .sidebar.open { transform: translateX(0); box-shadow: 8px 0 30px rgba(0,0,0,.2); }
+      .mobile-bar { display: block; }
+      .page { width: min(100% - 28px, var(--content)); padding-top: 36px; }
+      .metadata { grid-template-columns: repeat(2, 1fr); }
+      .metadata div:nth-child(2) { border-right: 0; }
+      .metadata div:nth-child(-n+2) { border-bottom: 1px solid var(--border); }
+      .loop-layout { grid-template-columns: 1fr; }
+      .loop-detail { min-height: auto; }
+      .arch-notes, .source-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 560px) {
+      .metadata { grid-template-columns: 1fr; }
+      .metadata div { border-right: 0; border-bottom: 1px solid var(--border); }
+      .metadata div:last-child { border-bottom: 0; }
+      .arch-row { grid-template-columns: 1fr; }
+      .arch-flow { padding-bottom: 14px; }
+      .facts { grid-template-columns: 1fr; }
+    }
+    @media print {
+      .layout { display: block; }
+      .sidebar, .mobile-bar, .copy { display: none; }
+      .page { width: 100%; padding: 0; }
+      section { break-inside: avoid; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition: none !important; } }
+  </style>
+</head>
+<body>
+  <div class="mobile-bar"><button id="menu-toggle" aria-expanded="false" aria-controls="sidebar">Contents</button></div>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="doc-id"><strong>Asset Reliability Command Center</strong><span>TECHNICAL REFERENCE<br>Revision 2026-10-05</span></div>
+      <nav class="toc" aria-label="Document contents">
+        <div class="toc-label">Contents</div>
+        <a href="#scope">1. Scope and status</a>
+        <a href="#system">2. System architecture</a>
+        <a href="#data-plane">3. Real-time data plane</a>
+        <a href="#agent-runtime">4. Agent runtime</a>
+        <a href="#agent-loop">5. Agent loop</a>
+        <a href="#tools">6. MCP tools</a>
+        <a href="#skill">7. Governed Skill</a>
+        <a href="#governance">8. Gateway governance</a>
+        <a href="#identity">9. Identity and permissions</a>
+        <a href="#persistence">10. Persistence</a>
+        <a href="#failures">11. Concurrency and failures</a>
+        <a href="#alternatives">12. Static-tool alternative</a>
+        <a href="#source-map">13. Source map</a>
+      </nav>
+      <div class="sidebar-note">This document describes implementation mechanics. It does not reproduce the presenter narrative.</div>
+    </aside>
+
+    <main>
+      <article class="page">
+        <header>
+          <div class="document-type">Solution architecture / implementation reference</div>
+          <h1>Asset Reliability Command Center</h1>
+          <p class="abstract">Detailed description of the real-time telemetry path, operational store, Databricks App, custom agent runtime, MCP integration, Unity Gateway policy enforcement, identity propagation, and durable execution state.</p>
+          <dl class="metadata">
+            <div><dt>Runtime style</dt><dd>Custom async tool-calling loop</dd></div>
+            <div><dt>Agent framework</dt><dd>None (no LangGraph/LangChain)</dd></div>
+            <div><dt>Operational store</dt><dd>Lakebase / PostgreSQL 17</dd></div>
+            <div><dt>Governance</dt><dd>Unity Gateway MCP service</dd></div>
+          </dl>
+        </header>
+
+        <section id="scope">
+          <div class="section-number">01</div><h2>Scope and implementation status</h2>
+          <p class="section-lead">The document separates deployed infrastructure, current loop behavior, and the approved single-model configuration. Where the current source branch and approved model configuration differ, the distinction is explicit.</p>
+          <div class="notice warning"><strong>Model configuration status</strong><p>The approved design uses one Databricks-hosted model for all turns. That implementation exists on <code>feat/single_model_runtime</code>. Repository <code>main</code> at the documentation baseline still contains the earlier GPT-5.1 → Claude Sonnet 4.5 routing branch. This distinction does not change the agent loop, MCP, Skill, OBO, or Gateway policy mechanics described below.</p></div>
+          <div class="table-wrap"><table><thead><tr><th>Concern</th><th>Implemented behavior</th><th>Classification</th></tr></thead><tbody>
+            <tr><td>Agent orchestration</td><td>Application-owned loop in <code>ProductionCommandCenterRuntime</code></td><td><span class="status fixed">CODE</span></td></tr>
+            <tr><td>Model</td><td>Approved: one configured endpoint for every turn</td><td><span class="status config">CONFIGURED</span></td></tr>
+            <tr><td>MCP service</td><td>One configured Unity Gateway endpoint</td><td><span class="status config">CONFIGURED</span></td></tr>
+            <tr><td>Tool schemas</td><td>Retrieved with MCP <code>tools/list</code> at the start of each incident</td><td><span class="status dynamic">RUNTIME</span></td></tr>
+            <tr><td>Skill</td><td>One configured Skill tool, always loaded before reasoning</td><td><span class="status fixed">FIXED STEP</span></td></tr>
+            <tr><td>Tool choice</td><td>Model-selected from the schemas returned by Gateway</td><td><span class="status dynamic">RUNTIME</span></td></tr>
+            <tr><td>Approval</td><td>Gateway <code>ASK</code>; application cannot self-approve</td><td><span class="status policy">POLICY</span></td></tr>
+          </tbody></table></div>
+        </section>
+
+        <section id="system">
+          <div class="section-number">02</div><h2>System architecture</h2>
+          <p class="section-lead">The solution has three independently operating planes. The App is not in the Kafka network path, and Spark ingestion does not own alert or agent logic.</p>
+          <div class="panel">
+            <div class="panel-head"><strong>Logical component topology</strong><span>arrows indicate runtime communication</span></div>
+            <div class="panel-body architecture">
+              <div class="arch-row"><div class="arch-label">Telemetry plane</div><div class="arch-flow"><div class="component compute"><b>Pump producer job</b><span>Eight synthetic pumps, 2 Hz each</span></div><div class="arrow right"></div><div class="component"><b>Kafka topic</b><span>asset-reliability-pump-telemetry</span></div><div class="arrow right"></div><div class="component compute"><b>Spark RTM job</b><span>DBR 19 Structured Streaming</span></div><div class="arrow right"></div><div class="component store"><b>Lakebase</b><span>telemetry_events + live state</span></div></div></div>
+              <div class="arch-row"><div class="arch-label">Application plane</div><div class="arch-flow"><div class="component"><b>Browser</b><span>Authenticated App user</span></div><div class="arrow bi"></div><div class="component wide compute"><b>Databricks App</b><span>React, FastAPI, SSE, evaluator, agent, /mcp</span></div><div class="arrow bi"></div><div class="component store"><b>Lakebase</b><span>Canonical operational state</span></div></div></div>
+              <div class="arch-row"><div class="arch-label">Agent plane</div><div class="arch-flow"><div class="component wide compute"><b>Custom agent loop</b><span>One asyncio task per incident</span></div><div class="arrow right"></div><div class="component"><b>Model endpoint</b><span>Tool-calling chat API</span></div><div class="arrow right"></div><div class="component governed"><b>Unity Gateway</b><span>Configured MCP service</span></div><div class="arrow right"></div><div class="component wide compute"><b>App /mcp</b><span>Four business tools</span></div></div></div>
+              <div class="arch-row"><div class="arch-label">Governance plane</div><div class="arch-flow"><div class="component governed"><b>UC Skill</b><span>Runtime-loaded procedure</span></div><div class="arrow right"></div><div class="component governed"><b>Service policy</b><span>ASK on submit_work_order</span></div><div class="arrow right"></div><div class="component action"><b>Native approval</b><span>Human authorization + exact replay</span></div></div></div>
+            </div>
+          </div>
+          <div class="arch-notes"><div><strong>App → Kafka</strong>No direct connection. Presenter commands are written to Lakebase and claimed by the producer.</div><div><strong>Model → data</strong>No direct Lakebase credential. The model receives evidence only through prompt context and governed tool results.</div><div><strong>Agent → MCP server</strong>The agent does not enumerate servers. It calls one endpoint configured in <code>GOVERNED_MCP_ENDPOINT</code>.</div></div>
+        </section>
+
+        <section id="data-plane">
+          <div class="section-number">03</div><h2>Real-time data and control plane</h2>
+          <p class="section-lead">Telemetry generation, event transport, ingestion, operational projection, display updates, and threshold evaluation are separate concerns.</p>
+          <div class="table-wrap"><table><thead><tr><th>Stage</th><th>Implementation</th><th>State and guarantees</th></tr></thead><tbody>
+            <tr><td>Signal generation</td><td>Continuous single-node classic-compute producer</td><td>Eight pumps; deterministic event IDs; sequence recovery across job restarts.</td></tr>
+            <tr><td>Scenario control</td><td>App inserts idempotent rows into <code>scenario_commands</code></td><td>Producer claims with <code>FOR UPDATE SKIP LOCKED</code>; App requires no Kafka connectivity.</td></tr>
+            <tr><td>Event transport</td><td>Dedicated Kafka topic</td><td>Publication acknowledged before producer heartbeat advances.</td></tr>
+            <tr><td>Ingestion</td><td>Standalone Spark Structured Streaming Real-Time Mode</td><td>DBR 19; persistent checkpoint in UC volume; native PostgreSQL sink; idempotent keys.</td></tr>
+            <tr><td>Operational projection</td><td>Lakebase trigger maintains <code>pump_live_state</code></td><td>Latest observation per scenario and pump; emits <code>LISTEN/NOTIFY</code>.</td></tr>
+            <tr><td>Dashboard update</td><td>App coalesces notifications and emits SSE revisions</td><td>Notifications are hints; every display rebuild reads canonical tables.</td></tr>
+            <tr><td>Alert evaluation</td><td>Independent one-second App loop</td><td>Transactionally creates at most one incident/run per scenario, pump, and rule.</td></tr>
+          </tbody></table></div>
+          <h3>Bounded read path</h3>
+          <p>Fleet sparklines use eight index-backed lateral probes over <code>(scenario_id, pump_id, event_time DESC)</code>, limited to 20 samples per pump. Raw telemetry retention runs every five minutes and deletes at most 1,000 expired rows per scenario/pump batch with short lock and statement timeouts.</p>
+        </section>
+
+        <section id="agent-runtime">
+          <div class="section-number">04</div><h2>Agent runtime and framework</h2>
+          <p class="section-lead">The application does not use LangGraph, LangChain, the OpenAI Agents SDK, or another orchestration framework. It implements a custom tool-calling loop directly.</p>
+          <div class="notice"><strong>Framework classification</strong><p>The runtime is best described as an application-specific, ReAct-style loop using OpenAI-compatible chat/tool messages. FastAPI hosts it; <code>asyncio</code> provides concurrency; direct HTTP clients call model serving and Unity Gateway.</p></div>
+          <div class="table-wrap"><table><thead><tr><th>Responsibility</th><th>Implementation</th></tr></thead><tbody>
+            <tr><td>Incident scheduling</td><td><code>asyncio.create_task()</code>; one task per incident</td></tr>
+            <tr><td>Prompt and message history</td><td>Plain Python dictionaries using <code>system</code>, <code>user</code>, <code>assistant</code>, and <code>tool</code> roles</td></tr>
+            <tr><td>Model calls</td><td>HTTP POST to <code>/serving-endpoints/{endpoint}/invocations</code></td></tr>
+            <tr><td>Tool schema</td><td>Converted from MCP <code>inputSchema</code> into OpenAI-compatible function definitions</td></tr>
+            <tr><td>Tool routing</td><td>Application parses <code>tool_calls</code>, then calls Unity Gateway sequentially</td></tr>
+            <tr><td>Governance pause</td><td>Gateway error code <code>-32042</code> is decoded into a URL elicitation and durable waiting state</td></tr>
+            <tr><td>Execution trace</td><td>Model, Skill, MCP, tool, policy, token, and cost events persisted to Lakebase</td></tr>
+          </tbody></table></div>
+          <pre><button class="copy" data-copy>copy</button><code># Conceptual structure; simplified from ProductionCommandCenterRuntime
+async def run_agent(incident_id):
+    identity = await wait_for_obo_identity(incident.scenario_id)
+    skill = await skill_gateway.call_tool(configured_skill, {}, identity.token)
+    tools = await gateway.list_tools(identity.token)
+    model_tools = convert_mcp_schemas(tools)
+
+    while True:
+        turn = await model.turn(messages, tools=model_tools)
+        if not turn.tool_calls:
+            resolve_or_continue(turn)
+            return
+
+        for call in turn.tool_calls:
+            try:
+                result = await gateway.call_tool(call.name, call.args, identity.token)
+            except GatewayAsk as ask:
+                await persist_waiting_state(ask.serialized_request, ask.approval_url)
+                return
+
+            messages.append(tool_result(result))
+            apply_application_specific_branches(call.name, result)</code></pre>
+        </section>
+
+        <section id="agent-loop">
+          <div class="section-number">05</div><h2>Agent loop, step by step</h2>
+          <p class="section-lead">Select a step to inspect its inputs, output, identity, persistence behavior, and degree of configurability.</p>
+          <div class="loop-layout">
+            <div class="loop-steps" role="tablist" aria-label="Agent loop steps">
+              <button class="loop-step active" role="tab" data-loop="0"><span class="n">01</span><span><b>Create incident</b><span>one-second evaluator</span></span></button>
+              <button class="loop-step" role="tab" data-loop="1"><span class="n">02</span><span><b>Resolve OBO identity</b><span>process-local registry</span></span></button>
+              <button class="loop-step" role="tab" data-loop="2"><span class="n">03</span><span><b>Load configured Skill</b><span>mandatory loop step</span></span></button>
+              <button class="loop-step" role="tab" data-loop="3"><span class="n">04</span><span><b>List MCP tools</b><span>runtime discovery</span></span></button>
+              <button class="loop-step" role="tab" data-loop="4"><span class="n">05</span><span><b>Construct model request</b><span>prompt + tool schemas</span></span></button>
+              <button class="loop-step" role="tab" data-loop="5"><span class="n">06</span><span><b>Process tool calls</b><span>validate + call Gateway</span></span></button>
+              <button class="loop-step" role="tab" data-loop="6"><span class="n">07</span><span><b>Handle policy decision</b><span>ALLOW / ASK / error</span></span></button>
+              <button class="loop-step" role="tab" data-loop="7"><span class="n">08</span><span><b>Continue or resolve</b><span>result added to history</span></span></button>
+              <button class="loop-step" role="tab" data-loop="8"><span class="n">09</span><span><b>Approval replay</b><span>exact serialized request</span></span></button>
+            </div>
+            <div class="loop-detail" id="loop-detail" aria-live="polite"></div>
+          </div>
+
+          <h3>Application-specific branches</h3>
+          <div class="table-wrap"><table><thead><tr><th>Tool/result</th><th>Hardcoded behavior</th><th>Reason</th></tr></thead><tbody>
+            <tr><td><code>assess_failure_risk</code></td><td>Result is stored as <code>last_risk</code>. Current <code>main</code> changes model endpoint on <code>risk_band == "high"</code>; approved single-model branch removes only that endpoint switch.</td><td>The runtime needs to know whether the incident can close as no-action or must continue toward a governed action.</td></tr>
+            <tr><td>High risk + no tool call</td><td>One continuation message instructs the model to pursue the warranted governed action and let Gateway decide policy.</td><td>Prevents a high-risk run from ending before an action attempt.</td></tr>
+            <tr><td><code>submit_work_order</code></td><td>Successful result completes the incident and triggers the post-approval/final response path.</td><td>This tool represents the terminal business write.</td></tr>
+            <tr><td>Low-risk terminal response</td><td>Incident resolves as <code>no_action</code>.</td><td>Normal transients remain visible in invocation history.</td></tr>
+          </tbody></table></div>
+        </section>
+
+        <section id="tools">
+          <div class="section-number">06</div><h2>MCP service and tool surface</h2>
+          <p class="section-lead">The agent is configured with one Unity Gateway MCP service URL. It does not discover MCP servers. It discovers the tools exposed by that service for the current request context.</p>
+          <div class="notice"><strong>Permission and exposure model</strong><p>The operator’s OBO token determines whether the configured MCP service can be accessed. The MCP service’s <code>include_tool_selectors</code> determines which source tools are advertised. The custom service policy determines whether an advertised call is allowed to execute.</p></div>
+          <div class="table-wrap"><table><thead><tr><th>Tool</th><th>Inputs</th><th>Reads / writes</th><th>Policy result</th></tr></thead><tbody>
+            <tr><td><code>get_asset_telemetry</code></td><td><code>asset_id</code></td><td>Reads current snapshot; returns vibration, warning threshold, flow, current, trend, timestamp.</td><td><span class="status dynamic">ALLOW</span></td></tr>
+            <tr><td><code>assess_failure_risk</code></td><td><code>asset_id</code>, optional <code>maintenance_window_days</code></td><td>Reads up to 12 recent samples; returns probability, risk band, persistence and correlated evidence.</td><td><span class="status dynamic">ALLOW</span></td></tr>
+            <tr><td><code>prepare_work_order</code></td><td><code>asset_id</code>, <code>action</code>, <code>incident_id</code></td><td>Returns non-binding part, availability, duration, and planned window. No work order is written.</td><td><span class="status dynamic">ALLOW</span></td></tr>
+            <tr><td><code>submit_work_order</code></td><td><code>asset_id</code>, <code>action</code>, <code>incident_id</code>, <code>planned_window</code></td><td>After authorization, idempotently inserts a scheduled work order into Lakebase.</td><td><span class="status policy">ASK → ALLOW</span></td></tr>
+          </tbody></table></div>
+          <h3>Discovery request</h3>
+          <pre><button class="copy" data-copy>copy</button><code>POST {GOVERNED_MCP_ENDPOINT}
+Authorization: Bearer {operator_obo_token}
+Content-Type: application/json
+MCP-Protocol-Version: 2025-11-25
+
+{
+  "jsonrpc": "2.0",
+  "id": "...",
+  "method": "tools/list",
+  "params": {}
+}</code></pre>
+          <p>The returned MCP schemas are converted into the model API’s function-tool representation. Before any call, the runtime also verifies that the model-selected name is present in the returned <code>available</code> map.</p>
+        </section>
+
+        <section id="skill">
+          <div class="section-number">07</div><h2>Governed Skill loading</h2>
+          <p class="section-lead">Skill loading is dynamic in content but not dynamic in selection.</p>
+          <div class="table-wrap"><table><thead><tr><th>Question</th><th>Current behavior</th></tr></thead><tbody>
+            <tr><td>Does the runtime always load a Skill?</td><td>Yes. Missing Skill Gateway configuration fails the production run.</td></tr>
+            <tr><td>Who selects the Skill?</td><td>Deployment configuration. <code>GOVERNED_SKILL_TOOL</code> identifies one Skill tool.</td></tr>
+            <tr><td>Does the agent search for relevant Skills?</td><td>No. There is no Skill enumeration, retrieval, ranking, or model selection step.</td></tr>
+            <tr><td>Is the Skill content embedded in application code?</td><td>No. The current content is fetched through the Skill Gateway for each incident and inserted into the system prompt.</td></tr>
+            <tr><td>Whose identity is used?</td><td>The selected operator’s OBO token. Required UC privileges are <code>USE_CATALOG</code>, <code>USE_SCHEMA</code>, and Skill <code>READ_VOLUME</code>.</td></tr>
+          </tbody></table></div>
+          <pre><button class="copy" data-copy>copy</button><code>if not skill_gateway or not settings.governed_skill_tool:
+    raise RuntimeError("Governed Skill Gateway configuration is missing")
+
+skill_response = await skill_gateway.call_tool(
+    settings.governed_skill_tool,
+    {},
+    identity.token,
+)
+skill_instructions = structured(skill_response)["result"]</code></pre>
+          <p>The loop therefore implements “load this configured governed Skill,” not “find a Skill appropriate to this alert.” The UI does not predict the Skill name; it renders the actual Skill event after the load succeeds.</p>
+        </section>
+
+        <section id="governance">
+          <div class="section-number">08</div><h2>Unity Gateway governance and approval</h2>
+          <p class="section-lead">All business tool calls are sent to Unity Gateway. The policy is evaluated before the source MCP method is invoked.</p>
+          <div class="table-wrap"><div class="sequence" aria-label="Governed tool-call sequence">
+            <div class="seq-cell seq-head">Phase</div><div class="seq-cell seq-head">Agent runtime</div><div class="seq-cell seq-head">Unity Gateway</div><div class="seq-cell seq-head">App /mcp</div><div class="seq-cell seq-head">Operator</div>
+            <div class="seq-cell seq-label">Discovery</div><div class="seq-cell"><span class="message">tools/list + OBO</span></div><div class="seq-cell"><span class="message gov">authorize + return schemas</span></div><div class="seq-cell">source tool list</div><div class="seq-cell"></div>
+            <div class="seq-cell seq-label">Read / analysis</div><div class="seq-cell"><span class="message">tools/call + OBO</span></div><div class="seq-cell"><span class="message gov">policy ALLOW</span></div><div class="seq-cell"><span class="message">execute tool</span></div><div class="seq-cell"></div>
+            <div class="seq-cell seq-label">Work-order write</div><div class="seq-cell"><span class="message">submit_work_order</span></div><div class="seq-cell"><span class="message ask">ASK; source not called</span></div><div class="seq-cell">not executed</div><div class="seq-cell"><span class="message ask">approval URL</span></div>
+            <div class="seq-cell seq-label">Resume</div><div class="seq-cell"><span class="message">replay exact bytes</span></div><div class="seq-cell"><span class="message gov">approved → ALLOW</span></div><div class="seq-cell"><span class="message">create work order</span></div><div class="seq-cell">authorization complete</div>
+          </div></div>
+          <h3>Policy contract</h3>
+          <pre><button class="copy" data-copy>copy</button><code>CASE
+  WHEN event:type::string = 'request'
+   AND event:context.tool.name::string = 'submit_work_order'
+  THEN {
+    "result": "ASK",
+    "reason": "Submitting a maintenance work order requires human authorization."
+  }
+  ELSE { "result": "ALLOW", "reason": "" }
+END</code></pre>
+          <ul>
+            <li><code>ASK</code> is decoded from Gateway error code <code>-32042</code> and its URL elicitation.</li>
+            <li>The exact serialized JSON-RPC request is stored with the pending approval.</li>
+            <li>The runtime returns immediately. It does not execute the source tool or produce a successful terminal conclusion.</li>
+            <li>After external authorization, the application’s approval endpoint replays the exact stored bytes through Gateway.</li>
+            <li>A repeated <code>ASK</code> leaves the incident waiting. Errors and denials are recorded as failures, not successful actions.</li>
+          </ul>
+        </section>
+
+        <section id="identity">
+          <div class="section-number">09</div><h2>Identity propagation and permissions</h2>
+          <p class="section-lead">The solution uses different identities for user-governed calls, App infrastructure access, and continuous jobs.</p>
+          <div class="table-wrap"><table><thead><tr><th>Identity</th><th>Used for</th><th>Relevant access</th><th>Persistence</th></tr></thead><tbody>
+            <tr><td>Selected operator OBO token</td><td>UC Skill calls; MCP <code>tools/list</code>; MCP <code>tools/call</code>; approval replay</td><td>App <code>CAN_USE</code>; UC <code>USE_CATALOG</code>/<code>USE_SCHEMA</code>; Skill <code>READ_VOLUME</code>; MCP service <code>EXECUTE</code></td><td>Token remains in process memory. Only its subject is stored.</td></tr>
+            <tr><td>App service principal</td><td>FastAPI runtime; model endpoint; Lakebase; MCP source App boundary</td><td>Lakebase <code>CAN_CONNECT_AND_CREATE</code>; model <code>CAN_QUERY</code>; warehouse <code>CAN_USE</code>; source App <code>CAN_USE</code></td><td>Managed by Databricks App resource bindings.</td></tr>
+            <tr><td>Producer job principal</td><td>Claim scenario commands; publish Kafka telemetry; update heartbeat</td><td>Lakebase credentials generated for the job principal; Kafka network path</td><td>Job/runtime credentials, not application state.</td></tr>
+            <tr><td>RTM job principal</td><td>Consume Kafka; write Lakebase sink; maintain checkpoint</td><td>Kafka consume; Lakebase sink; UC volume checkpoint</td><td>Job/runtime credentials.</td></tr>
+          </tbody></table></div>
+          <h3>OBO safety requirement for static or dynamic tools</h3>
+          <p>Tool schemas may be static, cached, or discovered without changing OBO semantics. The tool execution wrapper must resolve the token from the current incident context. A singleton tool object must never capture one user’s token, because independent incidents and users can execute concurrently.</p>
+          <pre><button class="copy" data-copy>copy</button><code># Correct: schema/wrapper is reusable; identity is resolved per invocation
+async def call_governed_tool(name, arguments, incident_context):
+    identity = identity_registry.get(incident_context.scenario_id)
+    return await gateway.call_tool(name, arguments, identity.token)</code></pre>
+        </section>
+
+        <section id="persistence">
+          <div class="section-number">10</div><h2>Lakebase persistence model</h2>
+          <p class="section-lead">Lakebase is both the operational read model and durable execution journal. Process-local secrets are deliberately excluded.</p>
+          <div class="table-wrap"><table><thead><tr><th>Table</th><th>Responsibility</th></tr></thead><tbody>
+            <tr><td><code>pumps</code></td><td>Static fleet and maintenance context.</td></tr>
+            <tr><td><code>scenario_runs</code></td><td>Active and archived synthetic scenarios.</td></tr>
+            <tr><td><code>scenario_commands</code></td><td>Idempotent presenter commands claimed by the producer.</td></tr>
+            <tr><td><code>telemetry_events</code></td><td>Append/upsert telemetry log keyed by deterministic <code>event_id</code>.</td></tr>
+            <tr><td><code>pump_live_state</code></td><td>Latest reading per scenario and pump.</td></tr>
+            <tr><td><code>alert_rules</code></td><td>Threshold and hysteresis configuration.</td></tr>
+            <tr><td><code>incidents</code></td><td>Alert condition, lifecycle, resolution, and work-order reference.</td></tr>
+            <tr><td><code>agent_runs</code></td><td>Run status, pending approval, token/cost/tool totals.</td></tr>
+            <tr><td><code>activity_events</code></td><td>Ordered model, Skill, MCP, tool, policy, and runtime events.</td></tr>
+            <tr><td><code>conversation_messages</code></td><td>Agent conclusions and operator follow-up exchanges.</td></tr>
+            <tr><td><code>work_orders</code></td><td>Governed scheduled maintenance result.</td></tr>
+            <tr><td><code>run_identities</code></td><td>Identity subject audit record; no bearer token.</td></tr>
+            <tr><td><code>component_heartbeats</code></td><td>Producer health and acknowledged message count.</td></tr>
+          </tbody></table></div>
+          <h3>Run state transitions</h3>
+          <div class="state-flow"><div class="state">detected</div><div class="arrow right"></div><div class="state">running</div><div class="arrow right"></div><div class="state waiting">waiting / ASK</div><div class="arrow right"></div><div class="state done">complete</div><div class="arrow right"></div><div class="state done">scheduled</div></div>
+          <p>Alternative terminal paths from <code>running</code> are <code>no_action</code> for normal transients and <code>failed</code> for unrecoverable runtime, authorization, or contract errors.</p>
+        </section>
+
+        <section id="failures">
+          <div class="section-number">11</div><h2>Concurrency, idempotency, and failure behavior</h2>
+          <details open><summary>Concurrent incident evaluation</summary><div>Every incident runs in a separate <code>asyncio</code> task. P-202 and P-207 can therefore be evaluated concurrently. The model client and Gateway client are shared, while message history, incident state, and OBO lookup are scoped per run.</div></details>
+          <details><summary>Duplicate suppression</summary><div>Database uniqueness constraints suppress duplicate active scenarios, commands, incidents, telemetry events, and work orders. The evaluator’s transaction is the authority for incident creation.</div></details>
+          <details><summary>Pending approval recovery</summary><div>The serialized request and approval metadata survive in Lakebase, but the bearer token does not. After an App restart, a live operator request must repopulate process-local identity before replay can succeed.</div></details>
+          <details><summary>Producer or Kafka failure</summary><div>Kafka acknowledgement precedes heartbeat advancement. A broker failure makes the producer job fail visibly and restart. Sequence recovery prevents event-ID reuse.</div></details>
+          <details><summary>SSE disconnect</summary><div>The browser reconnects using a revision cursor. The App rebuilds state from Lakebase; notifications and SSE messages are not treated as durable records.</div></details>
+          <details><summary>Model formatting error</summary><div>The runtime attempts one correction for tool-call rationale and terminal response shape. If rationale formatting remains invalid, it emits a deterministic prospective fallback. Successful governed writes also receive a fallback conclusion if the post-approval model call fails.</div></details>
+        </section>
+
+        <section id="alternatives">
+          <div class="section-number">12</div><h2>Static-tool alternative</h2>
+          <p class="section-lead">The existing custom loop can use statically configured tool schemas without adopting LangGraph or LangChain.</p>
+          <div class="table-wrap"><table><thead><tr><th>Aspect</th><th>Current per-incident discovery</th><th>Static schemas in current loop</th></tr></thead><tbody>
+            <tr><td>Schema source</td><td>MCP <code>tools/list</code></td><td>Shared Python contract imported by agent and source MCP server</td></tr>
+            <tr><td>Additional request</td><td>One discovery call per incident</td><td>None</td></tr>
+            <tr><td>Model tool set</td><td>Reflects current service response</td><td>Fixed until application redeployment</td></tr>
+            <tr><td>OBO authorization</td><td>Applied to discovery and every call</td><td>Applied to every call; unchanged</td></tr>
+            <tr><td>Gateway policy</td><td>Applied on <code>tools/call</code></td><td>Applied on <code>tools/call</code>; unchanged</td></tr>
+            <tr><td>Drift risk</td><td>Low: schemas come from service</td><td>Static schema may advertise a tool removed from the service</td></tr>
+            <tr><td>Per-user visibility</td><td>Can reflect Gateway response for the active identity</td><td>Model may see a tool the user cannot execute; Gateway still rejects the call</td></tr>
+          </tbody></table></div>
+          <h3>Minimal code change</h3>
+          <pre><button class="copy" data-copy>copy</button><code>from backend.mcp import TOOLS  # preferably move contracts to a neutral module
+
+available = {tool["name"]: tool for tool in TOOLS}
+openai_tools = [to_openai_function(tool) for tool in TOOLS]
+
+# Model selection remains unchanged.
+# Execution still uses operator OBO and Unity Gateway.
+result = await gateway.call_tool(tool_name, arguments, identity.token)</code></pre>
+          <div class="notice warning"><strong>Recommended control if schemas become static</strong><p>Add a deployment or startup contract test comparing the static names and schemas with the MCP service definition. This detects drift without putting a discovery event into every incident timeline.</p></div>
+        </section>
+
+        <section id="source-map">
+          <div class="section-number">13</div><h2>Source map</h2>
+          <p class="section-lead">Primary implementation files for verifying or changing the behavior described in this reference.</p>
+          <div class="source-grid">
+            <a class="source-card" href="../backend/production_runtime.py"><code>backend/production_runtime.py</code><span>Evaluator, OBO binding, Skill load, tool discovery, model loop, ASK pause, replay.</span></a>
+            <a class="source-card" href="../backend/gateway.py"><code>backend/gateway.py</code><span>MCP JSON-RPC transport, bearer token, SSE decoding, Gateway ASK detection.</span></a>
+            <a class="source-card" href="../backend/model_client.py"><code>backend/model_client.py</code><span>Direct model-serving HTTP calls and OpenAI-compatible tool messages.</span></a>
+            <a class="source-card" href="../backend/mcp.py"><code>backend/mcp.py</code><span>Tool schemas and source implementations.</span></a>
+            <a class="source-card" href="../backend/identity.py"><code>backend/identity.py</code><span>Process-local OBO token registry and persisted subject extraction.</span></a>
+            <a class="source-card" href="../scripts/deploy_governance.py"><code>scripts/deploy_governance.py</code><span>UC Skill, HTTP connection, MCP service selectors, custom policy attachment.</span></a>
+            <a class="source-card" href="../sql/setup_demo.sql"><code>sql/setup_demo.sql</code><span>ASK policy function contract.</span></a>
+            <a class="source-card" href="../databricks.yml"><code>databricks.yml</code><span>Jobs, Lakebase, App resources, model binding, user-token forwarding.</span></a>
+            <a class="source-card" href="../app.yaml"><code>app.yaml</code><span>Runtime environment and governed endpoint identifiers.</span></a>
+            <a class="source-card" href="../skills/asset-reliability-response/SKILL.md"><code>skills/.../SKILL.md</code><span>Governed investigation and action procedure.</span></a>
+          </div>
+        </section>
+      </article>
+    </main>
+  </div>
+
+  <script>
+    const loopSteps = [
+      { n:'01', title:'Create incident and run', summary:'The one-second evaluator reads the active scenario and creates durable work before starting an async task.', kind:'Application-controlled', identity:'Selected operator must have supplied a live token for the scenario.', input:'pump_live_state + alert_rules', output:'incidents + agent_runs rows; incident task', persistence:'Transactionally durable before the task is spawned.', source:'backend/production_runtime.py::_evaluator_loop; backend/lakebase_repository.py::evaluate_thresholds' },
+      { n:'02', title:'Resolve the incident OBO identity', summary:'The run waits for the operator identity associated with the scenario. Tokens are held only in process memory.', kind:'Application-controlled', identity:'Operator OBO bearer token.', input:'scenario_id', output:'OboIdentity(token, subject)', persistence:'Subject is audited; token is not persisted.', source:'backend/production_runtime.py::_wait_for_identity; backend/identity.py' },
+      { n:'03', title:'Load the configured governed Skill', summary:'The runtime always invokes the configured Skill tool and injects its returned instructions into the system prompt.', kind:'Hardcoded step; configurable Skill identifier', identity:'Operator OBO token.', input:'GOVERNED_SKILL_ENDPOINT + GOVERNED_SKILL_TOOL', output:'Skill instruction text + activity event', persistence:'Skill load event persisted; content becomes in-memory prompt context.', source:'backend/production_runtime.py::_run_agent lines 220–241; app.yaml' },
+      { n:'04', title:'Discover the configured MCP service tool surface', summary:'The runtime calls MCP tools/list on one configured Unity Gateway service. It does not enumerate MCP servers.', kind:'Runtime discovery', identity:'Operator OBO token; requires service EXECUTE and parent UC access.', input:'GOVERNED_MCP_ENDPOINT', output:'Tool names, descriptions, JSON input schemas', persistence:'MCP discovery activity with returned names.', source:'backend/production_runtime.py::_run_agent lines 242–270; backend/gateway.py::list_tools' },
+      { n:'05', title:'Construct the model request', summary:'MCP schemas are converted to function tools. The autonomous alert and Skill text form the system/user context.', kind:'Application-controlled prompt; dynamic tools', identity:'Model call uses the App service principal resource binding.', input:'Skill text + incident + message history + tools', output:'Assistant content and optional tool_calls', persistence:'Model event, tokens, estimated cost, prospective rationale.', source:'backend/production_runtime.py::_run_agent lines 260–378; backend/model_client.py' },
+      { n:'06', title:'Validate and execute model-selected calls', summary:'Every selected name must exist in the discovered map. Arguments are decoded and the request is sent through Gateway.', kind:'Model-selected; application-executed', identity:'Operator OBO token on every tools/call request.', input:'tool name + JSON arguments', output:'Structured MCP result or GatewayAsk', persistence:'ALLOW calls become individual tool activity events.', source:'backend/production_runtime.py::_run_agent lines 411–469; backend/gateway.py::call_tool' },
+      { n:'07', title:'Handle Unity Gateway decision', summary:'ALLOW returns a source result. ASK causes an immediate pause before source execution. Other errors fail the incident.', kind:'Gateway policy-controlled', identity:'Operator identity is the governed caller; connection principal reaches the source App.', input:'Gateway JSON-RPC response', output:'Tool result, pending approval, or error', persistence:'ASK stores request bytes, elicitation ID, URL, message, and tool name.', source:'backend/gateway.py::_send; backend/production_runtime.py::_pause_for_gateway' },
+      { n:'08', title:'Append result and continue or resolve', summary:'The tool result is appended to model history. The loop repeats until a no-action conclusion or successful terminal write.', kind:'Application-specific state machine', identity:'Same incident context.', input:'Tool result + last_risk + message history', output:'Next model turn, no_action, complete, or failed', persistence:'Conversation, activity, totals, and incident status.', source:'backend/production_runtime.py::_run_agent lines 450–485' },
+      { n:'09', title:'Replay after native approval', summary:'The approval endpoint retrieves the durable pending request and replays the exact serialized bytes through Gateway.', kind:'Externally authorized resume', identity:'Operator OBO token must still be available in process memory.', input:'PendingApproval.serialized_request', output:'Approved result or repeated ASK', persistence:'Work order, approved tool result, completed incident, final response.', source:'backend/production_runtime.py::_retry_pending and _complete_governed_action' }
+    ];
+
+    const loopDetail = document.getElementById('loop-detail');
+    function renderLoop(index) {
+      const step = loopSteps[index];
+      document.querySelectorAll('.loop-step').forEach((el, i) => el.classList.toggle('active', i === index));
+      loopDetail.innerHTML = `<div class="loop-detail-head"><small>STEP ${step.n} · ${step.kind.toUpperCase()}</small><h3>${step.title}</h3><p>${step.summary}</p></div><div class="loop-detail-body"><dl class="facts"><div class="fact"><dt>Identity</dt><dd>${step.identity}</dd></div><div class="fact"><dt>Control</dt><dd>${step.kind}</dd></div><div class="fact"><dt>Input</dt><dd>${step.input}</dd></div><div class="fact"><dt>Output</dt><dd>${step.output}</dd></div></dl><h4>Persistence behavior</h4><p>${step.persistence}</p><div class="source-ref">Source: ${step.source}</div></div>`;
+    }
+    document.querySelectorAll('.loop-step').forEach((el, index) => el.addEventListener('click', () => renderLoop(index)));
+    renderLoop(0);
+
+    document.querySelectorAll('[data-copy]').forEach(button => button.addEventListener('click', async () => {
+      const text = button.nextElementSibling.textContent;
+      try { await navigator.clipboard.writeText(text); button.textContent = 'copied'; }
+      catch { button.textContent = 'select text'; }
+      setTimeout(() => button.textContent = 'copy', 1200);
+    }));
+
+    const sidebar = document.getElementById('sidebar');
+    const menuToggle = document.getElementById('menu-toggle');
+    menuToggle.addEventListener('click', () => {
+      const open = sidebar.classList.toggle('open');
+      menuToggle.setAttribute('aria-expanded', String(open));
+    });
+    document.querySelectorAll('.toc a').forEach(link => link.addEventListener('click', () => {
+      sidebar.classList.remove('open'); menuToggle.setAttribute('aria-expanded', 'false');
+    }));
+
+    const sections = [...document.querySelectorAll('section[id]')];
+    const tocLinks = [...document.querySelectorAll('.toc a')];
+    const observer = new IntersectionObserver(entries => {
+      const visible = entries.filter(e => e.isIntersecting).sort((a,b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (!visible) return;
+      tocLinks.forEach(link => link.classList.toggle('active', link.getAttribute('href') === `#${visible.target.id}`));
+    }, { rootMargin: '-15% 0px -70% 0px', threshold: [0, .25, .6] });
+    sections.forEach(section => observer.observe(section));
+  </script>
+</body>
+</html>
