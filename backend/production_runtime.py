@@ -47,6 +47,7 @@ class ProductionCommandCenterRuntime:
         )
         self.model = model or DatabricksModelClient(settings.databricks_host)
         self.identities = OboIdentityRegistry()
+        self._user_identities = OboIdentityRegistry()
         self._evaluator_task: asyncio.Task[None] | None = None
         self._run_tasks: set[asyncio.Task[None]] = set()
         self._last_subject: str | None = None
@@ -82,6 +83,19 @@ class ProductionCommandCenterRuntime:
             self._last_subject = identity.subject
             self._identity_scenario_id = scenario_id
 
+    def cache_user_identity(self, user_email: str, token: str | None) -> None:
+        self._user_identities.capture(user_email.lower(), token)
+
+    def bind_operator_identity(self, scenario_id: str, operator_email: str) -> bool:
+        cached = self._user_identities.get(operator_email.lower())
+        if not cached:
+            self._identity_scenario_id = None
+            return False
+        self.identities.capture(scenario_id, cached.token)
+        self._last_subject = cached.subject
+        self._identity_scenario_id = scenario_id
+        return True
+
     async def restart(self) -> str:
         self.identities.clear()
         self._identity_scenario_id = None
@@ -101,6 +115,9 @@ class ProductionCommandCenterRuntime:
         self, expected_version: int, new_operator_email: str, initiated_by: str
     ) -> str:
         async with self._operator_change_lock:
+            scenario_id = await self.repository.handover_operator(
+                expected_version, new_operator_email, initiated_by
+            )
             for task in list(self._run_tasks):
                 task.cancel()
             if self._run_tasks:
@@ -108,9 +125,8 @@ class ProductionCommandCenterRuntime:
             self._run_tasks.clear()
             self.identities.clear()
             self._identity_scenario_id = None
-            return await self.repository.handover_operator(
-                expected_version, new_operator_email, initiated_by
-            )
+            self.bind_operator_identity(scenario_id, new_operator_email)
+            return scenario_id
 
     async def approve(self, incident_id: str) -> None:
         incident = await self.repository.incident(incident_id)

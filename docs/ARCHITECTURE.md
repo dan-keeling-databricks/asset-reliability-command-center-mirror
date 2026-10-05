@@ -149,6 +149,9 @@ discover work. Cleanup failure is isolated from ingestion and interactive reads.
   App resources.
 - The browser's forwarded user token is captured server-side for Gateway calls and is never
   written to Lakebase or logs.
+- Authenticated user tokens are cached only in process memory by user email. On handover, a
+  cached token for the selected operator is bound to the fresh scenario; otherwise autonomous
+  reviews wait until that operator's dashboard or SSE request supplies a token.
 - The root HTTP connection uses the App service principal only to reach the MCP endpoint;
   Gateway policies govern business execution.
 - Model, Skill, MCP, and Gateway access are Databricks-native resource bindings.

@@ -35,6 +35,8 @@ class CommandCenterRuntime(Protocol):
         self, expected_version: int, new_operator_email: str, initiated_by: str
     ) -> str: ...
     def capture_identity(self, scenario_id: str, token: str | None) -> None: ...
+    def cache_user_identity(self, user_email: str, token: str | None) -> None: ...
+    def bind_operator_identity(self, scenario_id: str, operator_email: str) -> bool: ...
     async def approve(self, incident_id: str) -> None: ...
     async def follow_up(self, incident_id: str, message: str) -> None: ...
 
@@ -91,6 +93,13 @@ class LocalCommandCenterRuntime:
 
     def capture_identity(self, scenario_id: str, token: str | None) -> None:
         del scenario_id, token
+
+    def cache_user_identity(self, user_email: str, token: str | None) -> None:
+        del user_email, token
+
+    def bind_operator_identity(self, scenario_id: str, operator_email: str) -> bool:
+        del scenario_id, operator_email
+        return True
 
     async def stop(self) -> None:
         tasks = [*self._run_tasks]

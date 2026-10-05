@@ -127,13 +127,20 @@ def create_app(
         ),
     ) -> dict[str, Any]:
         user = app_user(forwarded_email, forwarded_name)
+        runtime.cache_user_identity(user.email, forwarded_token)
         snapshot = await register_and_snapshot(user)
         if snapshot.viewer and snapshot.viewer.is_operator:
-            runtime.capture_identity(snapshot.scenario.id, forwarded_token)
+            runtime.bind_operator_identity(snapshot.scenario.id, user.email)
         return snapshot.model_dump(mode="json")
 
     @app.get("/api/incidents/{incident_id}")
-    async def incident(incident_id: str) -> dict[str, Any]:
+    async def incident(
+        incident_id: str,
+        forwarded_token: str | None = Header(default=None, alias="X-Forwarded-Access-Token"),
+        forwarded_email: str | None = Header(default=None, alias="X-Forwarded-Email"),
+    ) -> dict[str, Any]:
+        if forwarded_email:
+            runtime.cache_user_identity(forwarded_email, forwarded_token)
         detail = await repository.incident(incident_id)
         if not detail:
             raise HTTPException(status_code=404, detail="Incident not found")
@@ -152,6 +159,7 @@ def create_app(
         ),
     ) -> CommandResponse:
         user = app_user(forwarded_email, forwarded_name)
+        runtime.cache_user_identity(user.email, forwarded_token)
         snapshot = await register_and_snapshot(user)
         require_operator(snapshot, user)
         scenario_id = await runtime.restart()
@@ -171,6 +179,7 @@ def create_app(
         ),
     ) -> CommandResponse:
         user = app_user(forwarded_email, forwarded_name)
+        runtime.cache_user_identity(user.email, forwarded_token)
         snapshot = await register_and_snapshot(user)
         require_operator(snapshot, user)
         runtime.capture_identity(snapshot.scenario.id, forwarded_token)
@@ -191,6 +200,7 @@ def create_app(
     )
     async def handover_operator(
         request: OperatorHandoverRequest,
+        forwarded_token: str | None = Header(default=None, alias="X-Forwarded-Access-Token"),
         forwarded_email: str | None = Header(default=None, alias="X-Forwarded-Email"),
         forwarded_name: str | None = Header(
             default=None, alias="X-Forwarded-Preferred-Username"
@@ -199,6 +209,7 @@ def create_app(
         if not request.confirmed:
             raise HTTPException(status_code=400, detail="Handover confirmation is required")
         user = app_user(forwarded_email, forwarded_name)
+        runtime.cache_user_identity(user.email, forwarded_token)
         await repository.register_user(user)
         try:
             scenario_id = await runtime.handover_operator(
@@ -214,12 +225,14 @@ def create_app(
     )
     async def approve(
         incident_id: str,
+        forwarded_token: str | None = Header(default=None, alias="X-Forwarded-Access-Token"),
         forwarded_email: str | None = Header(default=None, alias="X-Forwarded-Email"),
         forwarded_name: str | None = Header(
             default=None, alias="X-Forwarded-Preferred-Username"
         ),
     ) -> dict[str, str]:
         user = app_user(forwarded_email, forwarded_name)
+        runtime.cache_user_identity(user.email, forwarded_token)
         require_operator(await register_and_snapshot(user), user)
         try:
             await runtime.approve(incident_id)
@@ -234,12 +247,14 @@ def create_app(
     async def follow_up(
         incident_id: str,
         request: FollowUpRequest,
+        forwarded_token: str | None = Header(default=None, alias="X-Forwarded-Access-Token"),
         forwarded_email: str | None = Header(default=None, alias="X-Forwarded-Email"),
         forwarded_name: str | None = Header(
             default=None, alias="X-Forwarded-Preferred-Username"
         ),
     ) -> dict[str, str]:
         user = app_user(forwarded_email, forwarded_name)
+        runtime.cache_user_identity(user.email, forwarded_token)
         require_operator(await register_and_snapshot(user), user)
         try:
             await runtime.follow_up(incident_id, request.message)
@@ -252,6 +267,7 @@ def create_app(
         request: Request,
         after: int = 0,
         last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+        forwarded_token: str | None = Header(default=None, alias="X-Forwarded-Access-Token"),
         forwarded_email: str | None = Header(default=None, alias="X-Forwarded-Email"),
         forwarded_name: str | None = Header(
             default=None, alias="X-Forwarded-Preferred-Username"
@@ -259,6 +275,7 @@ def create_app(
     ) -> StreamingResponse:
         cursor = max(after, int(last_event_id or 0))
         user = app_user(forwarded_email, forwarded_name)
+        runtime.cache_user_identity(user.email, forwarded_token)
         await repository.register_user(user)
 
         async def stream():
@@ -277,6 +294,8 @@ def create_app(
                         name=user.name,
                         is_operator=user.email == operator_email,
                     )
+                    if snapshot.viewer.is_operator:
+                        runtime.bind_operator_identity(snapshot.scenario.id, user.email)
                     yield f"id: {cursor}\ndata: {snapshot.model_dump_json()}\n\n"
                 else:
                     yield ": keep-alive\n\n"
