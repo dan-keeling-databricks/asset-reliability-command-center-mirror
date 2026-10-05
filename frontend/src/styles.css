@@ -250,6 +250,7 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .gateway-policy { margin-top: 9px; padding: 9px 10px; display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; border: 1px solid #bddde8; border-radius: 7px; background: #f2fafc; }
 .gateway-policy > span { font-weight: 700; }
 .gateway-policy p { grid-column: 1 / -1; margin: 0; color: var(--muted); }
+.gateway-policy .runtime-actions { grid-column: 1 / -1; }
 .policy-ask { border-color: #e8c374; background: #fff8e5; }
 .policy-deny { border-color: #efb5ad; background: #fff3f1; }
 .runtime-status { flex: 0 0 auto; padding: 4px 7px; border-radius: 999px; color: #5d5d64; background: #ededeb; font-weight: 700; white-space: nowrap; }
