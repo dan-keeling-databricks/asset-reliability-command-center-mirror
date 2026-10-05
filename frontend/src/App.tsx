@@ -55,6 +55,7 @@ function App() {
   const [followUp, setFollowUp] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [backendMode, setBackendMode] = useState<"local" | "lakebase">("local");
   const timelineRef = useRef<HTMLDivElement>(null);
 
   const refreshIncident = useCallback(async (incidentId: string) => {
@@ -67,9 +68,13 @@ function App() {
     let disposed = false;
     void (async () => {
       try {
-        const initial = await jsonRequest<DashboardSnapshot>("/api/dashboard");
+        const [initial, health] = await Promise.all([
+          jsonRequest<DashboardSnapshot>("/api/dashboard"),
+          jsonRequest<{ adapter: "local" | "lakebase" }>("/api/health")
+        ]);
         if (disposed) return;
         setSnapshot(initial);
+        setBackendMode(health.adapter);
         source = new EventSource(`/api/events?after=${initial.revision}`);
         source.onmessage = (event) => {
           setSnapshot(JSON.parse(event.data) as DashboardSnapshot);
@@ -187,6 +192,12 @@ function App() {
 
   return (
     <main className="command-center">
+      {backendMode === "lakebase" && (
+        <div className="live-backend-banner" role="status">
+          <strong>LIVE BACKEND</strong>
+          <span>Controls and approvals modify the shared Databricks demo environment.</span>
+        </div>
+      )}
       <header className="command-header">
         <div className="brand-lockup">
           <div className="brand-glyph"><span /></div>

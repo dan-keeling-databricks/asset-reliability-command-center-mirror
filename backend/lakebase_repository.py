@@ -59,6 +59,7 @@ class LakebaseCommandCenterRepository:
         dsn: str,
         schema: str = "asset_reliability",
         job_principal: str | None = None,
+        migrate_on_start: bool = True,
         sse_coalesce_seconds: float = 0.05,
         telemetry_retention_seconds: int = 86_400,
         telemetry_retention_interval_seconds: float = 300.0,
@@ -69,6 +70,7 @@ class LakebaseCommandCenterRepository:
         self.schema = schema
         self._dsn = dsn
         self.job_principal = job_principal
+        self._migrate_on_start = migrate_on_start
         self._sse_coalesce_seconds = max(0.0, sse_coalesce_seconds)
         self._telemetry_retention_seconds = max(1, telemetry_retention_seconds)
         self._telemetry_retention_interval_seconds = max(0.1, telemetry_retention_interval_seconds)
@@ -96,7 +98,8 @@ class LakebaseCommandCenterRepository:
 
     async def start(self) -> None:
         await self._pool.open(wait=True, timeout=30)
-        await self._migrate()
+        if self._migrate_on_start:
+            await self._migrate()
         await self._ensure_active_scenario()
         self._listener_task = asyncio.create_task(self._listen_loop())
         self._retention_task = asyncio.create_task(self._retention_loop())

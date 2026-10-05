@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -29,6 +31,25 @@ class OboIdentityRegistry:
 
     def clear(self) -> None:
         self._identities.clear()
+
+
+class LocalDatabricksIdentityProvider:
+    """Resolve the current CLI user's bearer token for local live development only."""
+
+    def __init__(self, profile: str | None = None, workspace_client: Any | None = None) -> None:
+        if workspace_client is None:
+            from databricks.sdk import WorkspaceClient
+
+            workspace_client = WorkspaceClient(profile=profile)
+        self._workspace_client = workspace_client
+
+    async def token(self) -> str:
+        headers = await asyncio.to_thread(self._workspace_client.config.authenticate)
+        authorization = (headers or {}).get("Authorization", "")
+        scheme, separator, token = authorization.partition(" ")
+        if not separator or scheme.lower() != "bearer" or not token:
+            raise RuntimeError("The Databricks CLI profile did not provide a bearer token")
+        return token
 
 
 def _jwt_subject(token: str) -> str | None:

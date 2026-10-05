@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from backend.identity import LocalDatabricksIdentityProvider
 from backend.lakebase_repository import LakebaseCommandCenterRepository, lakebase_conninfo
 from backend.mcp import AssetReliabilityMCP
 from backend.models import CommandResponse, FollowUpRequest
@@ -35,6 +36,7 @@ def create_app(
                 settings.lakebase_dsn or lakebase_conninfo(),
                 schema=settings.lakebase_schema,
                 job_principal=settings.lakebase_job_principal,
+                migrate_on_start=settings.lakebase_migrate_on_start,
                 sse_coalesce_seconds=settings.sse_coalesce_seconds,
                 telemetry_retention_seconds=settings.telemetry_retention_seconds,
                 telemetry_retention_interval_seconds=(
@@ -67,6 +69,16 @@ def create_app(
     app.state.settings = settings
     app.state.repository = repository
     app.state.runtime = runtime
+    local_identity = (
+        LocalDatabricksIdentityProvider(settings.databricks_config_profile)
+        if settings.local_databricks_auth
+        else None
+    )
+
+    async def identity_token(forwarded_token: str | None) -> str | None:
+        if forwarded_token or local_identity is None:
+            return forwarded_token
+        return await local_identity.token()
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -83,7 +95,7 @@ def create_app(
         forwarded_token: str | None = Header(default=None, alias="X-Forwarded-Access-Token"),
     ) -> dict[str, Any]:
         snapshot = await repository.snapshot()
-        runtime.capture_identity(snapshot.scenario.id, forwarded_token)
+        runtime.capture_identity(snapshot.scenario.id, await identity_token(forwarded_token))
         return snapshot.model_dump(mode="json")
 
     @app.get("/api/incidents/{incident_id}")
@@ -102,7 +114,7 @@ def create_app(
         forwarded_token: str | None = Header(default=None, alias="X-Forwarded-Access-Token"),
     ) -> CommandResponse:
         scenario_id = await runtime.restart()
-        runtime.capture_identity(scenario_id, forwarded_token)
+        runtime.capture_identity(scenario_id, await identity_token(forwarded_token))
         return CommandResponse(scenario_id=scenario_id)
 
     @app.post(
@@ -114,7 +126,7 @@ def create_app(
         forwarded_token: str | None = Header(default=None, alias="X-Forwarded-Access-Token"),
     ) -> CommandResponse:
         snapshot = await repository.snapshot()
-        runtime.capture_identity(snapshot.scenario.id, forwarded_token)
+        runtime.capture_identity(snapshot.scenario.id, await identity_token(forwarded_token))
         try:
             command_id = await runtime.trigger_excursion()
         except ValueError as exc:

@@ -28,6 +28,8 @@ existing `classic_stable_realtime_demos_catalog` and the dedicated
 | Performance | Replace full-scenario sparkline scan with indexed per-pump top-N reads | Complete |
 | Performance | Coalesce SSE notifications and remove full snapshots from agent telemetry tools | Complete |
 | Performance | Add non-blocking 24-hour batched telemetry retention | Complete |
+| Developer experience | Provide safe simulator and authenticated live-backend local modes | Complete |
+| Developer experience | Mark shared-backend sessions visibly and support configurable local ports | Complete |
 | Repository | Document architecture, manual deployment, and multi-agent worktree conventions | Complete |
 | Repository | Publish the repository and feature branch to GitHub | Complete |
 
