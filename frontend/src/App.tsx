@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   AlertSummary,
   DashboardSnapshot,
@@ -340,19 +340,32 @@ function ActivityCard({ activity, busy, runAction, compact = false }: { activity
   return <article className={`chat-event runtime-event event-${activity.status} ${compact ? "compact-card" : ""}`}><EventIcon category={category} /><div className="event-content"><div className="event-kicker"><span>{activity.category.replace("_", " ")}</span><time>{timeLabel(activity.emitted_at)}</time></div><div className="event-title"><div><strong>{activity.title}</strong>{activity.actor && <span>{activity.actor}</span>}</div><span className={`runtime-status runtime-status-${activity.status}`}>{runtimeLabel}</span></div>{activity.summary && <p>{activity.summary}</p>}{details.length > 0 && <dl>{details.map((detail) => <div key={`${activity.id}-${detail.label}`}><dt>{detail.label}</dt><dd>{detail.value}</dd></div>)}</dl>}{policy && <section className={`gateway-policy policy-${policy.toLowerCase()}`}><strong>Unity Gateway policy applied</strong><span>{policy}</span><p>{activity.details.find((detail) => detail.label.toLowerCase() === "execution")?.value ?? (policy === "ALLOW" ? "Execution occurred" : "Execution did not occur")}</p></section>}{activity.action && <button className="runtime-action" disabled={busy} onClick={() => void runAction(activity.action!)}>{activity.action.label}</button>}<footer className="event-footer">{tokenTotal > 0 && <span>Total tokens <strong>{tokenTotal.toLocaleString()}</strong></span>}</footer></div></article>;
 }
 
-function ExecutionTimeline({ activities }: { activities: RuntimeActivity[] }) {
-  const [hovered, setHovered] = useState<{
-    activity: RuntimeActivity;
-    left: number;
-    top: number;
-    width: number;
-  } | null>(null);
-  const shown = activities.filter((activity) => ["model_call", "skill", "tool_call", "tool_result", "mcp"].includes(activity.category));
-  const start = shown.length ? Math.min(...shown.map((activity) => new Date(activity.started_at ?? activity.emitted_at).getTime())) : 0;
-  const end = shown.length ? Math.max(...shown.map((activity) => new Date(activity.completed_at ?? activity.emitted_at).getTime()), start + 1000) : start + 1000;
-  const range = Math.max(end - start, 1000);
-  const lanes = [{ label: "LLM calls", categories: ["model_call"] }, { label: "Skill reads", categories: ["skill"] }, { label: "Tool calls", categories: ["tool_call", "tool_result", "mcp"] }];
-  return <div className="execution-view"><div className="execution-scale"><span>Start</span><span>Agent execution</span><span>Latest event</span></div>{shown.length === 0 ? <div className="timeline-empty">No runtime activity yet.</div> : lanes.map((lane) => <section className="gantt-lane" key={lane.label}><h3>{lane.label}</h3><div className="execution-track">{shown.filter((activity) => lane.categories.includes(activity.category)).map((activity) => {
+type TimelineHover = { activity: RuntimeActivity; left: number; top: number; width: number };
+
+function GanttLane({ label, activities, start, range, setHovered }: { label: string; activities: RuntimeActivity[]; start: number; range: number; setHovered: (hover: TimelineHover | null) => void }) {
+  const bars = useRef(new Map<string, HTMLDivElement>());
+  const [rows, setRows] = useState<Record<string, number>>({});
+
+  useLayoutEffect(() => {
+    const occupiedUntil: number[] = [];
+    const nextRows: Record<string, number> = {};
+    const measured = activities.map((activity) => {
+      const bar = bars.current.get(activity.id);
+      const barRect = bar?.getBoundingClientRect();
+      const labelRect = bar?.querySelector("i")?.getBoundingClientRect();
+      return { activity, left: barRect?.left ?? 0, right: Math.max(barRect?.right ?? 0, labelRect?.right ?? 0) };
+    }).sort((a, b) => a.left - b.left);
+    for (const item of measured) {
+      let row = occupiedUntil.findIndex((right) => right + 10 <= item.left);
+      if (row === -1) row = occupiedUntil.length;
+      occupiedUntil[row] = item.right;
+      nextRows[item.activity.id] = row;
+    }
+    setRows((current) => JSON.stringify(current) === JSON.stringify(nextRows) ? current : nextRows);
+  });
+
+  const rowCount = Math.max(1, ...Object.values(rows).map((row) => row + 1));
+  return <section className="gantt-lane"><h3>{label}</h3><div className="execution-track" style={{ height: `${Math.max(44, rowCount * 34 + 10)}px` }}>{activities.map((activity) => {
     const activityStart = new Date(activity.started_at ?? activity.emitted_at).getTime();
     const activityEnd = new Date(activity.completed_at ?? activity.emitted_at).getTime();
     const left = Math.min(88, ((activityStart - start) / range) * 88);
@@ -360,18 +373,21 @@ function ExecutionTimeline({ activities }: { activities: RuntimeActivity[] }) {
     const showCard = (target: HTMLElement) => {
       const rect = target.getBoundingClientRect();
       const popoverWidth = Math.min(700, window.innerWidth - 48);
-      const leftPosition = window.innerWidth - rect.right >= popoverWidth + 20
-        ? rect.right + 12
-        : Math.max(24, rect.left - popoverWidth - 12);
-      setHovered({
-        activity,
-        left: leftPosition,
-        top: Math.max(24, Math.min(rect.top, window.innerHeight - 544)),
-        width: popoverWidth
-      });
+      const leftPosition = window.innerWidth - rect.right >= popoverWidth + 20 ? rect.right + 12 : Math.max(24, rect.left - popoverWidth - 12);
+      setHovered({ activity, left: leftPosition, top: Math.max(24, Math.min(rect.top, window.innerHeight - 544)), width: popoverWidth });
     };
-    return <div className={`execution-bar category-${activity.category} bar-${activity.status}`} key={activity.id} style={{ left: `${left}%`, width: `${width}%` }} tabIndex={0} onMouseEnter={(event) => showCard(event.currentTarget)} onMouseLeave={() => setHovered(null)} onFocus={(event) => showCard(event.currentTarget)} onBlur={() => setHovered(null)}><i>{activity.title}</i></div>;
-  })}</div></section>)}{hovered && <div className="gantt-popover" style={{ left: hovered.left, top: hovered.top, width: hovered.width }}><ActivityCard activity={hovered.activity} busy={false} runAction={async () => undefined} compact /></div>}</div>;
+    return <div ref={(element) => { if (element) bars.current.set(activity.id, element); else bars.current.delete(activity.id); }} className={`execution-bar category-${activity.category} bar-${activity.status}`} key={activity.id} style={{ left: `${left}%`, width: `${width}%`, top: `${10 + (rows[activity.id] ?? 0) * 34}px` }} tabIndex={0} onMouseEnter={(event) => showCard(event.currentTarget)} onMouseLeave={() => setHovered(null)} onFocus={(event) => showCard(event.currentTarget)} onBlur={() => setHovered(null)}><i>{activity.title}</i></div>;
+  })}</div></section>;
+}
+
+function ExecutionTimeline({ activities }: { activities: RuntimeActivity[] }) {
+  const [hovered, setHovered] = useState<TimelineHover | null>(null);
+  const shown = activities.filter((activity) => ["model_call", "skill", "tool_call", "tool_result", "mcp"].includes(activity.category));
+  const start = shown.length ? Math.min(...shown.map((activity) => new Date(activity.started_at ?? activity.emitted_at).getTime())) : 0;
+  const end = shown.length ? Math.max(...shown.map((activity) => new Date(activity.completed_at ?? activity.emitted_at).getTime()), start + 1000) : start + 1000;
+  const range = Math.max(end - start, 1000);
+  const lanes = [{ label: "LLM calls", categories: ["model_call"] }, { label: "Skill reads", categories: ["skill"] }, { label: "Tool calls", categories: ["tool_call", "tool_result", "mcp"] }];
+  return <div className="execution-view"><div className="execution-scale"><span>Start</span><span>Agent execution</span><span>Latest event</span></div>{shown.length === 0 ? <div className="timeline-empty">No runtime activity yet.</div> : lanes.map((lane) => <GanttLane key={lane.label} label={lane.label} activities={shown.filter((activity) => lane.categories.includes(activity.category))} start={start} range={range} setHovered={setHovered} />)}{hovered && <div className="gantt-popover" style={{ left: hovered.left, top: hovered.top, width: hovered.width }}><ActivityCard activity={hovered.activity} busy={false} runAction={async () => undefined} compact /></div>}</div>;
 }
 
 export default App;

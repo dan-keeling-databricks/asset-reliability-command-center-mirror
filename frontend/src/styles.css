@@ -258,10 +258,10 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 
 .execution-view { overflow: visible auto; }
 .execution-scale { max-width: none; padding: 0 14px 0 110px; }
-.gantt-lane { min-height: 108px; padding: 12px 14px; display: grid; grid-template-columns: 90px minmax(0, 1fr); align-items: center; gap: 12px; border-bottom: 1px solid #e8e8e4; }
+.gantt-lane { min-height: 78px; padding: 12px 14px; display: grid; grid-template-columns: 90px minmax(0, 1fr); align-items: center; gap: 12px; border-bottom: 1px solid #e8e8e4; }
 .gantt-lane h3 { margin: 0; }
-.gantt-lane .execution-track { min-width: 900px; height: 68px; overflow: visible; }
-.gantt-lane .execution-bar { top: 24px; min-width: 8px; height: 20px; cursor: help; }
+.gantt-lane .execution-track { min-width: 900px; overflow: visible; transition: height .16s ease; }
+.gantt-lane .execution-bar { min-width: 8px; height: 20px; cursor: help; transition: top .16s ease; }
 .gantt-lane .execution-bar > i { left: calc(100% + 7px); top: 1px; color: #404047; }
 .category-model_call { background: #c8c4ec; }
 .category-skill { background: #efd08b; }
