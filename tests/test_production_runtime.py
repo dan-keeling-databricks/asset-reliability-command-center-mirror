@@ -1,5 +1,6 @@
 from backend.production_runtime import (
     _canonical_decision_rationale,
+    _canonical_terminal_response,
     _valid_decision_rationale,
     _valid_terminal_response,
 )
@@ -40,3 +41,18 @@ def test_decision_rationale_is_canonicalized_without_discarding_model_wording() 
         "Decision rationale: I will inspect governed telemetry first."
     )
     assert _canonical_decision_rationale("") is None
+
+
+def test_terminal_response_is_canonicalized_without_discarding_model_wording() -> None:
+    wrapped = (
+        "```markdown\nFinding: Persistent vibration.\n"
+        "**Evidence:** Rising vibration and temperature.\n"
+        "- **Risk:** High failure risk.\n"
+        "* **Action:** Work order awaits approval.\n```"
+    )
+    assert _canonical_terminal_response(wrapped) == (
+        "- **Finding:** Persistent vibration.\n"
+        "- **Evidence:** Rising vibration and temperature.\n"
+        "- **Risk:** High failure risk.\n"
+        "- **Action:** Work order awaits approval."
+    )

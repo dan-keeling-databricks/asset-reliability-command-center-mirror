@@ -379,6 +379,36 @@ class ProductionCommandCenterRuntime:
                         await self._pause_for_gateway(
                             incident_id, tool_name, ask, started_at=tool_started_at
                         )
+                        final_content = await self._ensure_terminal_response(
+                            incident_id,
+                            endpoint,
+                            [
+                                {
+                                    "role": "system",
+                                    "content": (
+                                        "Return exactly four Markdown bullets in this order, "
+                                        "with no other prose: `- **Finding:** ...`, "
+                                        "`- **Evidence:** ...`, `- **Risk:** ...`, "
+                                        "`- **Action:** ...`."
+                                    ),
+                                },
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        f"Summarize incident {incident_id} for "
+                                        f"{incident.asset_id}. "
+                                        f"Observed condition: {incident.condition}. Risk evidence: "
+                                        f"{json.dumps(last_risk or {})}. Unity Gateway returned "
+                                        f"ASK for `{tool_name}`: {ask.elicitation.message}. The "
+                                        "action has not executed and is waiting for human approval."
+                                    ),
+                                },
+                            ],
+                            "",
+                        )
+                        await self.repository.append_conversation(
+                            incident_id, "agent", final_content
+                        )
                         return
                     tool_completed_at = utc_now()
                     data = _structured(result)
@@ -552,8 +582,9 @@ class ProductionCommandCenterRuntime:
         messages: list[dict[str, Any]],
         content: str,
     ) -> str:
-        if _valid_terminal_response(content):
-            return content
+        canonical = _canonical_terminal_response(content)
+        if canonical:
+            return canonical
         correction_messages = [
             *messages,
             {
@@ -569,6 +600,7 @@ class ProductionCommandCenterRuntime:
         corrected = await self.model.turn(endpoint, correction_messages)
         completed_at = utc_now()
         corrected_content = str(corrected.message.get("content") or "")
+        canonical = _canonical_terminal_response(corrected_content)
         await self.repository.append_activity(
             incident_id,
             RuntimeActivity(
@@ -577,11 +609,11 @@ class ProductionCommandCenterRuntime:
                 actor=endpoint,
                 status="complete",
                 status_label="Completed",
-                summary=corrected_content,
+                summary=canonical or corrected_content,
                 details=[
                     ActivityDatum(label="Input tokens", value=str(corrected.input_tokens)),
                     ActivityDatum(label="Output tokens", value=str(corrected.output_tokens)),
-                    ActivityDatum(label="Model output", value=corrected_content),
+                    ActivityDatum(label="Model output", value=canonical or corrected_content),
                 ],
                 started_at=started_at,
                 completed_at=completed_at,
@@ -592,11 +624,11 @@ class ProductionCommandCenterRuntime:
                 self._model_cost(corrected.input_tokens, corrected.output_tokens),
             ),
         )
-        if not _valid_terminal_response(corrected_content):
+        if not canonical:
             raise RuntimeError(
                 "Model terminal output violated the response protocol after reformat"
             )
-        return corrected_content
+        return canonical
 
 
 def _structured(response: dict[str, Any]) -> dict[str, Any]:
@@ -657,4 +689,34 @@ def _valid_terminal_response(content: str) -> bool:
     return len(lines) == 4 and all(
         line.startswith(f"- **{label}:** ") and bool(line.removeprefix(f"- **{label}:** ").strip())
         for line, label in zip(lines, labels, strict=True)
+    )
+
+
+def _canonical_terminal_response(content: str) -> str | None:
+    """Extract the four required fields and render the exact presentation contract."""
+    cleaned = re.sub(r"^```(?:markdown|text)?\s*|\s*```$", "", content.strip(), flags=re.I)
+    if not cleaned:
+        return None
+    labels = ("Finding", "Evidence", "Risk", "Action")
+    values: list[str] = []
+    for index, label in enumerate(labels):
+        next_label = labels[index + 1] if index + 1 < len(labels) else None
+        boundary = (
+            rf"(?=\s*(?:[-*]\s*)?\*{{0,2}}{next_label}:\*{{0,2}})"
+            if next_label
+            else r"$"
+        )
+        match = re.search(
+            rf"(?:[-*]\s*)?\*{{0,2}}{label}:\*{{0,2}}\s*(.*?){boundary}",
+            cleaned,
+            flags=re.I | re.S,
+        )
+        if not match:
+            return None
+        value = " ".join(match.group(1).strip().split())
+        if not value:
+            return None
+        values.append(value)
+    return "\n".join(
+        f"- **{label}:** {value}" for label, value in zip(labels, values, strict=True)
     )

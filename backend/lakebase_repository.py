@@ -857,12 +857,6 @@ class LakebaseCommandCenterRepository:
                     ).format(self.table("agent_runs")),
                     (incident_id,),
                 )
-        await self.append_conversation(
-            incident_id,
-            "agent",
-            f"Approval was granted through Unity Gateway. {summary}",
-        )
-
     async def resolve_no_action(self, incident_id: str) -> None:
         summary = (
             "Signal returned to its expected operating envelope; no maintenance action required."
