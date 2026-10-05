@@ -29,7 +29,7 @@ existing `classic_stable_realtime_demos_catalog` and the dedicated
 | Performance | Coalesce SSE notifications and remove full snapshots from agent telemetry tools | Complete |
 | Performance | Add non-blocking 24-hour batched telemetry retention | Complete |
 | Repository | Document architecture, manual deployment, and multi-agent worktree conventions | Complete |
-| Repository | Publish the repository and feature branch to GitHub | In progress |
+| Repository | Publish the repository and feature branch to GitHub | Complete |
 
 ## Deployed resources
 
@@ -40,6 +40,8 @@ existing `classic_stable_realtime_demos_catalog` and the dedicated
 - Kafka topic: `asset-reliability-pump-telemetry`
 - Unity Catalog schema: `classic_stable_realtime_demos_catalog.asset_reliability_command_center`
 - Lakebase schema: `asset_reliability`
+- GitHub: `https://github.com/dan-keeling_data/asset-reliability-command-center`
+- Feature branch: `feat/lakebase_latency`
 
 ## Acceptance run
 
