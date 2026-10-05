@@ -282,7 +282,7 @@ class LocalCommandCenterRuntime:
                     actor="databricks-claude-sonnet-4-5",
                     status="complete",
                     status_label="Completed",
-                    summary="Generated final response after governed execution.",
+                    summary=conclusion,
                     details=[
                         ActivityDatum(label="Input tokens", value="684"),
                         ActivityDatum(label="Output tokens", value="96"),
@@ -356,8 +356,7 @@ class LocalCommandCenterRuntime:
                     actor="databricks-claude-sonnet-4-5",
                     status="complete",
                     status_label="Completed",
-                    display_scope="timeline",
-                    summary="Answered using persisted incident context.",
+                    summary=answer,
                     details=[
                         ActivityDatum(label="Output tokens", value="96"),
                         ActivityDatum(label="Model output", value=answer),

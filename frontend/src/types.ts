@@ -94,7 +94,6 @@ export type RuntimeActivity = {
   actor?: string | null;
   status: "running" | "complete" | "waiting" | "failed" | "info";
   status_label: string;
-  display_scope?: "all" | "timeline";
   summary?: string | null;
   details: { label: string; value: string }[];
   action?: RuntimeAction | null;

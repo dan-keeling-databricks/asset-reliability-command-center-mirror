@@ -161,7 +161,7 @@ def test_approval_and_follow_up_complete_incident() -> None:
             "- **Action:** Work order WO-10482 scheduled for the next available outage.",
         ]
         terminal = conclusions[0]
-        assert all(activity["summary"] != terminal for activity in incident["activities"])
+        assert sum(activity["summary"] == terminal for activity in incident["activities"]) == 1
         assert all(
             detail["value"] != terminal
             for activity in incident["activities"]
@@ -187,7 +187,8 @@ def test_approval_and_follow_up_complete_incident() -> None:
             for activity in reversed(incident["activities"])
             if activity["category"] == "model_call"
         )
-        assert follow_up_activity["display_scope"] == "timeline"
+        assert follow_up_activity["title"] == "Model execution"
+        assert follow_up_activity["summary"] == incident["conversation"][-1]["content"]
         assert (
             incident["totals"]["input_tokens"] + incident["totals"]["output_tokens"]
             > tokens_before_follow_up

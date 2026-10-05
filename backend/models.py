@@ -93,7 +93,6 @@ class RuntimeActivity(BaseModel):
     actor: str | None = None
     status: Literal["running", "complete", "waiting", "failed", "info"] = "info"
     status_label: str
-    display_scope: Literal["all", "timeline"] = "all"
     summary: str | None = None
     details: list[ActivityDatum] = Field(default_factory=list)
     action: RuntimeAction | None = None

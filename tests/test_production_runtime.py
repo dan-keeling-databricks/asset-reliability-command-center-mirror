@@ -7,8 +7,8 @@ import pytest
 
 from backend.gateway import GatewayAsk, GatewayElicitation
 from backend.identity import OboIdentityRegistry
-from backend.model_client import ModelTurn
-from backend.models import IncidentDetail, PendingApproval, RuntimeActivity
+from backend.model_client import ModelResult, ModelTurn
+from backend.models import IncidentDetail, PendingApproval
 from backend.production_runtime import (
     ProductionCommandCenterRuntime,
     _canonical_decision_rationale,
@@ -17,19 +17,6 @@ from backend.production_runtime import (
     _valid_decision_rationale,
     _valid_terminal_response,
 )
-
-
-def test_runtime_activity_display_scope_defaults_to_all_for_existing_records() -> None:
-    activity = RuntimeActivity.model_validate(
-        {
-            "category": "model_call",
-            "title": "Existing activity",
-            "status": "complete",
-            "status_label": "Completed",
-        }
-    )
-
-    assert activity.display_scope == "all"
 
 
 @pytest.mark.asyncio
@@ -215,6 +202,125 @@ async def test_post_approval_model_failure_uses_one_strict_fallback() -> None:
     assert role == "agent"
     assert _valid_terminal_response(content)
     assert "WO-10482" in content
+
+
+def terminal_content(action: str = "Maintenance scheduled.") -> str:
+    return (
+        "- **Finding:** Persistent vibration.\n"
+        "- **Evidence:** Vibration continued rising.\n"
+        "- **Risk:** High near-term failure risk.\n"
+        f"- **Action:** {action}"
+    )
+
+
+def post_approval_runtime(*turns: ModelTurn) -> ProductionCommandCenterRuntime:
+    runtime = ProductionCommandCenterRuntime.__new__(ProductionCommandCenterRuntime)
+    runtime.settings = SimpleNamespace(
+        primary_model_endpoint="primary-model",
+        model_input_cost_per_million=1.0,
+        model_output_cost_per_million=1.0,
+    )
+    runtime.model = SimpleNamespace(turn=AsyncMock(side_effect=list(turns)))
+    runtime.repository = SimpleNamespace(
+        append_activity=AsyncMock(), append_conversation=AsyncMock()
+    )
+    return runtime
+
+
+@pytest.mark.asyncio
+async def test_valid_terminal_model_output_is_persisted_once_in_activity() -> None:
+    content = terminal_content()
+    runtime = post_approval_runtime(
+        ModelTurn(
+            message={"role": "assistant", "content": content},
+            input_tokens=12,
+            output_tokens=8,
+        )
+    )
+    incident = IncidentDetail(
+        scenario_id="scenario-1",
+        asset_id="P-204",
+        title="Bearing risk",
+        condition="Persistent vibration.",
+        trigger_prompt="Assess.",
+    )
+
+    await runtime._generate_post_approval_response(
+        "incident-1", incident, {"result": {"structuredContent": {"work_order_id": "WO-1"}}}
+    )
+
+    activities = [call.args[1] for call in runtime.repository.append_activity.await_args_list]
+    assert [activity.summary for activity in activities] == [content]
+    runtime.repository.append_conversation.assert_awaited_once_with(
+        "incident-1", "agent", content
+    )
+
+
+@pytest.mark.asyncio
+async def test_corrected_terminal_preserves_both_real_model_outputs() -> None:
+    malformed = "Conclusion: schedule maintenance"
+    corrected = terminal_content("Work order WO-1 scheduled.")
+    runtime = post_approval_runtime(
+        ModelTurn(
+            message={"role": "assistant", "content": malformed},
+            input_tokens=12,
+            output_tokens=4,
+        ),
+        ModelTurn(
+            message={"role": "assistant", "content": corrected},
+            input_tokens=6,
+            output_tokens=8,
+        ),
+    )
+    incident = IncidentDetail(
+        scenario_id="scenario-1",
+        asset_id="P-204",
+        title="Bearing risk",
+        condition="Persistent vibration.",
+        trigger_prompt="Assess.",
+    )
+
+    await runtime._generate_post_approval_response(
+        "incident-1", incident, {"result": {"structuredContent": {"work_order_id": "WO-1"}}}
+    )
+
+    activities = [call.args[1] for call in runtime.repository.append_activity.await_args_list]
+    assert [activity.summary for activity in activities] == [malformed, corrected]
+    runtime.repository.append_conversation.assert_awaited_once_with(
+        "incident-1", "agent", corrected
+    )
+
+
+@pytest.mark.asyncio
+async def test_follow_up_persists_exact_model_output_and_tokens() -> None:
+    runtime = ProductionCommandCenterRuntime.__new__(ProductionCommandCenterRuntime)
+    runtime.settings = SimpleNamespace(
+        primary_model_endpoint="primary-model",
+        model_input_cost_per_million=1.0,
+        model_output_cost_per_million=1.0,
+    )
+    runtime.model = SimpleNamespace(
+        chat=AsyncMock(return_value=ModelResult("**WO-1** is scheduled.", 20, 5))
+    )
+    incident = IncidentDetail(
+        scenario_id="scenario-1",
+        asset_id="P-204",
+        title="Bearing risk",
+        condition="Persistent vibration.",
+        trigger_prompt="Assess.",
+    )
+    runtime.repository = SimpleNamespace(
+        incident=AsyncMock(return_value=incident),
+        append_activity=AsyncMock(),
+        append_conversation=AsyncMock(),
+    )
+
+    await runtime.follow_up("incident-1", "What happened?")
+
+    activity = runtime.repository.append_activity.await_args.args[1]
+    assert activity.title == "Model execution"
+    assert activity.summary == "**WO-1** is scheduled."
+    assert runtime.repository.append_activity.await_args.kwargs["tokens"][:2] == (20, 5)
 
 
 def test_tool_selection_protocol_accepts_only_decision_rationale() -> None:

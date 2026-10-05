@@ -301,11 +301,16 @@ function App() {
     return <div className="loading-screen"><div className="loading-mark" />Connecting to live operations…</div>;
   }
 
+  const modelOutputs = new Set(
+    incident?.activities
+      .filter((activity) => activity.category === "model_call" && activity.summary)
+      .map((activity) => activity.summary) ?? []
+  );
   const conversationItems = incident ? [
-    ...incident.activities
-      .filter((activity) => activity.display_scope !== "timeline")
-      .map((activity) => ({ kind: "activity" as const, at: activity.emitted_at, activity })),
-    ...incident.conversation.map((turn) => ({ kind: "message" as const, at: turn.created_at, turn }))
+    ...incident.activities.map((activity) => ({ kind: "activity" as const, at: activity.emitted_at, activity })),
+    ...incident.conversation
+      .filter((turn) => turn.role !== "agent" || !modelOutputs.has(turn.content))
+      .map((turn) => ({ kind: "message" as const, at: turn.created_at, turn }))
   ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime()) : [];
   const isOperator = snapshot.viewer?.is_operator ?? false;
   const operator = snapshot.shift_operator.operator;

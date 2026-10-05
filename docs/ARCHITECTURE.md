@@ -117,9 +117,9 @@ concurrently. OBO tokens remain in process memory; only identity subjects are pe
 
 Uniqueness constraints prevent duplicate active scenarios, commands, incidents, events, and
 work orders. Database notifications are hints; canonical state always comes from tables.
-Runtime activity metadata also carries a backwards-compatible display scope. Follow-up model
-execution remains persisted for audit, totals, and the execution timeline while its user-facing
-answer is represented once by the conversation message.
+Model text is persisted in its runtime activity and rendered once through the activity Output
+card. Conversation messages remain persisted for context and audit; the conversation UI omits
+an agent turn only when its exact content is already present in a model activity.
 
 ## Bounded read and retention design
 

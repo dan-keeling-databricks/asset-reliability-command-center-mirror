@@ -163,12 +163,11 @@ class ProductionCommandCenterRuntime:
             incident_id,
             RuntimeActivity(
                 category="model_call",
-                title="Follow-up response",
+                title="Model execution",
                 actor=self.settings.primary_model_endpoint,
                 status="complete",
                 status_label="Completed",
-                display_scope="timeline",
-                summary="Answered using persisted incident context.",
+                summary=result.content,
                 details=[ActivityDatum(label="Output tokens", value=str(result.output_tokens))],
                 started_at=started_at,
                 completed_at=completed_at,
@@ -349,6 +348,13 @@ class ProductionCommandCenterRuntime:
                         canonical_rationale = _fallback_decision_rationale(tool_names)
                 if canonical_rationale:
                     summary = canonical_rationale
+                canonical_terminal = (
+                    _canonical_terminal_response(summary)
+                    if not tool_calls
+                    and last_risk
+                    and last_risk.get("risk_band") != "high"
+                    else None
+                )
                 await self.repository.append_activity(
                     incident_id,
                     RuntimeActivity(
@@ -357,7 +363,7 @@ class ProductionCommandCenterRuntime:
                         actor=endpoint,
                         status="complete",
                         status_label="Completed",
-                        summary=(summary if tool_calls else "Generated terminal response."),
+                        summary=canonical_terminal or summary,
                         details=[
                             ActivityDatum(label="Input tokens", value=str(input_tokens)),
                             ActivityDatum(label="Output tokens", value=str(output_tokens)),
@@ -397,7 +403,7 @@ class ProductionCommandCenterRuntime:
                         )
                         continue
                     if last_risk and last_risk.get("risk_band") != "high":
-                        final_content = await self._ensure_terminal_response(
+                        final_content = canonical_terminal or await self._ensure_terminal_response(
                             incident_id, endpoint, messages, summary
                         )
                         await self.repository.append_conversation(
@@ -618,6 +624,7 @@ class ProductionCommandCenterRuntime:
             return
         completed_at = utc_now()
         content = str(turn.message.get("content") or "")
+        canonical = _canonical_terminal_response(content)
         await self.repository.append_activity(
             incident_id,
             RuntimeActivity(
@@ -626,7 +633,7 @@ class ProductionCommandCenterRuntime:
                 actor=self.settings.primary_model_endpoint,
                 status="complete",
                 status_label="Completed",
-                summary="Generated final response after governed execution.",
+                summary=canonical or content,
                 details=[
                     ActivityDatum(label="Input tokens", value=str(turn.input_tokens)),
                     ActivityDatum(label="Output tokens", value=str(turn.output_tokens)),
@@ -641,7 +648,7 @@ class ProductionCommandCenterRuntime:
             ),
         )
         try:
-            final_content = await self._ensure_terminal_response(
+            final_content = canonical or await self._ensure_terminal_response(
                 incident_id,
                 self.settings.primary_model_endpoint,
                 [*messages, turn.message],
@@ -685,7 +692,7 @@ class ProductionCommandCenterRuntime:
                 actor=endpoint,
                 status="complete",
                 status_label="Completed",
-                summary="Generated corrected terminal response.",
+                summary=canonical or corrected_content,
                 details=[
                     ActivityDatum(label="Input tokens", value=str(corrected.input_tokens)),
                     ActivityDatum(label="Output tokens", value=str(corrected.output_tokens)),
