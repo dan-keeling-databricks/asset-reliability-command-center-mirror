@@ -251,6 +251,10 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .gateway-policy p { grid-column: 1 / -1; margin: 0; color: var(--muted); }
 .policy-ask { border-color: #e8c374; background: #fff8e5; }
 .policy-deny { border-color: #efb5ad; background: #fff3f1; }
+.runtime-status { flex: 0 0 auto; padding: 4px 7px; border-radius: 999px; color: #5d5d64; background: #ededeb; font-weight: 700; white-space: nowrap; }
+.runtime-status-running { color: #5d4db7; background: #efecff; }
+.runtime-status-waiting { color: #8c5a00; background: #fff3d0; }
+.runtime-status-failed { color: var(--red); background: var(--red-soft); }
 
 .execution-view { overflow: visible auto; }
 .execution-scale { max-width: none; padding: 0 14px 0 110px; }
