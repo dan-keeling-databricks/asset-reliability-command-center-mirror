@@ -187,7 +187,7 @@ class ProductionCommandCenterRuntime:
                 incident_id,
                 RuntimeActivity(
                     category="skill",
-                    title="Load governed reliability response skill",
+                    title=self.settings.governed_skill_tool,
                     actor=self.settings.governed_skill_tool,
                     status="complete",
                     status_label="Loaded",
@@ -232,8 +232,12 @@ class ProductionCommandCenterRuntime:
                         "You are a code-defined asset reliability agent. Follow the governed "
                         "Skill below. Choose tools from the capabilities discovered at runtime; "
                         "do not assume a fixed sequence or call count. Never claim an action ran "
-                        "when a tool was blocked. Finish with one concise operator response using "
-                        "four bullet-led sections: Finding, Evidence, Risk, and Action.\n\n"
+                        "when a tool was blocked. OUTPUT PROTOCOL IS STRICT: whenever you select "
+                        "tools, assistant content must be exactly `Decision rationale: <one or "
+                        "two concise sentences>` with no other prose. A terminal response must "
+                        "contain exactly four Markdown bullets, in this exact order and with no "
+                        "other prose: `- **Finding:** ...`, `- **Evidence:** ...`, "
+                        "`- **Risk:** ...`, `- **Action:** ...`.\n\n"
                         f"GOVERNED SKILL:\n{skill_instructions}"
                     ),
                 },
@@ -256,13 +260,18 @@ class ProductionCommandCenterRuntime:
                 turn_completed_at = utc_now()
                 tool_calls = turn.message.get("tool_calls", [])
                 summary = str(turn.message.get("content") or "")
-                if not summary:
-                    summary = f"Selected {len(tool_calls)} governed capability call(s)."
+                if tool_calls and not _valid_decision_rationale(summary):
+                    raise RuntimeError("Model tool-selection output violated the response protocol")
+                terminal_response = not tool_calls and not (
+                    last_risk
+                    and last_risk.get("risk_band") == "high"
+                    and not action_continuation_requested
+                )
                 await self.repository.append_activity(
                     incident_id,
                     RuntimeActivity(
                         category="model_call",
-                        title="Choose next reliability action",
+                        title="Final response" if terminal_response else "Model execution",
                         actor=endpoint,
                         status="complete",
                         status_label="Completed",
@@ -270,6 +279,7 @@ class ProductionCommandCenterRuntime:
                         details=[
                             ActivityDatum(label="Input tokens", value=str(turn.input_tokens)),
                             ActivityDatum(label="Output tokens", value=str(turn.output_tokens)),
+                            ActivityDatum(label="Model output", value=summary),
                         ],
                         started_at=turn_started_at,
                         completed_at=turn_completed_at,
@@ -301,10 +311,12 @@ class ProductionCommandCenterRuntime:
                         )
                         continue
                     if last_risk and last_risk.get("risk_band") != "high":
-                        if turn.message.get("content"):
-                            await self.repository.append_conversation(
-                                incident_id, "agent", str(turn.message["content"])
-                            )
+                        final_content = await self._ensure_terminal_response(
+                            incident_id, endpoint, messages, summary
+                        )
+                        await self.repository.append_conversation(
+                            incident_id, "agent", final_content
+                        )
                         await self.repository.resolve_no_action(incident_id)
                         return
                     raise RuntimeError(
@@ -336,7 +348,7 @@ class ProductionCommandCenterRuntime:
                         incident_id,
                         RuntimeActivity(
                             category="tool_call",
-                            title=_tool_title(tool_name),
+                            title=tool_name,
                             actor=f"Unity Gateway · {tool_name}",
                             status="complete",
                             status_label="ALLOW",
@@ -401,7 +413,7 @@ class ProductionCommandCenterRuntime:
             incident_id,
             RuntimeActivity(
                 category="tool_call",
-                title=_tool_title(tool_name),
+                title=tool_name,
                 actor=f"Unity Gateway · {tool_name}",
                 status="waiting",
                 status_label="ASK · Not executed",
@@ -470,7 +482,7 @@ class ProductionCommandCenterRuntime:
             incident_id,
             RuntimeActivity(
                 category="tool_result",
-                title="Maintenance action completed",
+                title="submit_work_order",
                 actor="Unity Gateway · submit_work_order",
                 status="complete",
                 status_label="APPROVED · ALLOW",
@@ -485,6 +497,59 @@ class ProductionCommandCenterRuntime:
             ),
         )
         await self.repository.complete_incident(incident_id, str(work_order_id))
+
+    async def _ensure_terminal_response(
+        self,
+        incident_id: str,
+        endpoint: str,
+        messages: list[dict[str, Any]],
+        content: str,
+    ) -> str:
+        if _valid_terminal_response(content):
+            return content
+        correction_messages = [
+            *messages,
+            {
+                "role": "user",
+                "content": (
+                    "Reformat the conclusion only. Return exactly four Markdown bullets in "
+                    "this order, with no heading or other prose: `- **Finding:** ...`, "
+                    "`- **Evidence:** ...`, `- **Risk:** ...`, `- **Action:** ...`."
+                ),
+            },
+        ]
+        started_at = utc_now()
+        corrected = await self.model.turn(endpoint, correction_messages)
+        completed_at = utc_now()
+        corrected_content = str(corrected.message.get("content") or "")
+        await self.repository.append_activity(
+            incident_id,
+            RuntimeActivity(
+                category="model_call",
+                title="Final response",
+                actor=endpoint,
+                status="complete",
+                status_label="Completed",
+                summary=corrected_content,
+                details=[
+                    ActivityDatum(label="Input tokens", value=str(corrected.input_tokens)),
+                    ActivityDatum(label="Output tokens", value=str(corrected.output_tokens)),
+                    ActivityDatum(label="Model output", value=corrected_content),
+                ],
+                started_at=started_at,
+                completed_at=completed_at,
+            ),
+            tokens=(
+                corrected.input_tokens,
+                corrected.output_tokens,
+                self._model_cost(corrected.input_tokens, corrected.output_tokens),
+            ),
+        )
+        if not _valid_terminal_response(corrected_content):
+            raise RuntimeError(
+                "Model terminal output violated the response protocol after reformat"
+            )
+        return corrected_content
 
 
 def _structured(response: dict[str, Any]) -> dict[str, Any]:
@@ -515,10 +580,17 @@ def _result_summary(data: dict[str, Any]) -> str:
     return "Governed tool completed successfully."
 
 
-def _tool_title(name: str) -> str:
-    return {
-        "get_asset_telemetry": "Read recent asset telemetry",
-        "assess_failure_risk": "Assess failure risk before the maintenance window",
-        "prepare_work_order": "Prepare bearing replacement work order",
-        "submit_work_order": "Submit maintenance work order",
-    }.get(name, name.replace("_", " ").title())
+def _valid_decision_rationale(content: str) -> bool:
+    if not content.startswith("Decision rationale: ") or "\n" in content:
+        return False
+    rationale = content.removeprefix("Decision rationale: ").strip()
+    return bool(rationale) and sum(rationale.count(mark) for mark in ".!?") <= 2
+
+
+def _valid_terminal_response(content: str) -> bool:
+    lines = content.splitlines()
+    labels = ("Finding", "Evidence", "Risk", "Action")
+    return len(lines) == 4 and all(
+        line.startswith(f"- **{label}:** ") and bool(line.removeprefix(f"- **{label}:** ").strip())
+        for line, label in zip(lines, labels, strict=True)
+    )

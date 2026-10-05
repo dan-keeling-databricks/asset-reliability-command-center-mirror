@@ -121,7 +121,7 @@ class AssetReliabilityMCP:
                 "updated_at": pump.updated_at.isoformat(),
             }
         if name == "assess_failure_risk":
-            await asyncio.sleep(4)
+            await asyncio.sleep(6)
             pump = await self._pump(arguments["asset_id"])
             window = await self.repository.telemetry_window(arguments["asset_id"], limit=12)
             recent = window[-6:]
