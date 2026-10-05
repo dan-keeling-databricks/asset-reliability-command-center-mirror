@@ -61,4 +61,6 @@ approximately 441 times faster. Telemetry advanced throughout, both supported la
 clean, Clear & restart launched P-202/P-207 concurrently, and all browser requests succeeded
 with an empty console. The bounded retention delete plan was also exercised transactionally:
 it selected exactly 1,000 expired events through the composite index and completed below its
-two-second statement timeout.
+two-second statement timeout. The first deployed maintenance cycle then pruned approximately
+34,000 expired rows without interrupting ingestion; PostgreSQL autovacuum completed
+immediately afterward.
