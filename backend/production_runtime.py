@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Coroutine
+from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
@@ -16,6 +17,7 @@ from backend.models import (
     RuntimeAction,
     RuntimeActivity,
     ScenarioCommand,
+    utc_now,
 )
 from backend.settings import Settings
 
@@ -103,6 +105,7 @@ class ProductionCommandCenterRuntime:
         if not incident:
             raise LookupError("Incident not found")
         await self.repository.append_conversation(incident_id, "operator", message)
+        started_at = utc_now()
         result = await self.model.chat(
             self.settings.primary_model_endpoint,
             [
@@ -117,6 +120,7 @@ class ProductionCommandCenterRuntime:
             ],
             token=None,
         )
+        completed_at = utc_now()
         await self.repository.append_conversation(incident_id, "agent", result.content)
         await self.repository.append_activity(
             incident_id,
@@ -128,6 +132,8 @@ class ProductionCommandCenterRuntime:
                 status_label="Completed",
                 summary="Answered using persisted incident context.",
                 details=[ActivityDatum(label="Output tokens", value=str(result.output_tokens))],
+                started_at=started_at,
+                completed_at=completed_at,
             ),
             tokens=(
                 result.input_tokens,
@@ -159,6 +165,7 @@ class ProductionCommandCenterRuntime:
                 continue
 
     async def _run_agent(self, incident_id: str) -> None:
+        run_started_at = utc_now()
         try:
             incident = await self.repository.incident(incident_id)
             if not incident:
@@ -169,9 +176,11 @@ class ProductionCommandCenterRuntime:
 
             if not self.skill_gateway or not self.settings.governed_skill_tool:
                 raise RuntimeError("Governed Skill Gateway configuration is missing")
+            skill_started_at = utc_now()
             skill_response = await self.skill_gateway.call_tool(
                 self.settings.governed_skill_tool, {}, identity.token
             )
+            skill_completed_at = utc_now()
             skill_data = _structured(skill_response)
             skill_instructions = str(skill_data.get("result") or json.dumps(skill_data))
             await self.repository.append_activity(
@@ -183,20 +192,26 @@ class ProductionCommandCenterRuntime:
                     status="complete",
                     status_label="Loaded",
                     summary="Runtime loaded the current Unity Catalog response procedure.",
+                    started_at=skill_started_at,
+                    completed_at=skill_completed_at,
                 ),
             )
+            discovery_started_at = utc_now()
             tools = await self.gateway.list_tools(identity.token)
+            discovery_completed_at = utc_now()
             available = {tool["name"]: tool for tool in tools}
             await self.repository.append_activity(
                 incident_id,
                 RuntimeActivity(
-                    category="mcp_server",
+                    category="mcp",
                     title="Discover governed maintenance capabilities",
                     actor=self.settings.governed_mcp_endpoint,
                     status="complete",
                     status_label="Connected",
                     summary=f"Unity Gateway exposed {len(available)} governed tools at runtime.",
                     details=[ActivityDatum(label="Available", value=", ".join(sorted(available)))],
+                    started_at=discovery_started_at,
+                    completed_at=discovery_completed_at,
                 ),
             )
             openai_tools = [
@@ -236,7 +251,9 @@ class ProductionCommandCenterRuntime:
             last_risk: dict[str, Any] | None = None
             action_continuation_requested = False
             while True:
+                turn_started_at = utc_now()
                 turn = await self.model.turn(endpoint, messages, tools=openai_tools)
+                turn_completed_at = utc_now()
                 tool_calls = turn.message.get("tool_calls", [])
                 summary = str(turn.message.get("content") or "")
                 if not summary:
@@ -254,6 +271,8 @@ class ProductionCommandCenterRuntime:
                             ActivityDatum(label="Input tokens", value=str(turn.input_tokens)),
                             ActivityDatum(label="Output tokens", value=str(turn.output_tokens)),
                         ],
+                        started_at=turn_started_at,
+                        completed_at=turn_completed_at,
                     ),
                     tokens=(
                         turn.input_tokens,
@@ -303,11 +322,15 @@ class ProductionCommandCenterRuntime:
                         if isinstance(raw_arguments, str)
                         else raw_arguments
                     )
+                    tool_started_at = utc_now()
                     try:
                         result = await self.gateway.call_tool(tool_name, arguments, identity.token)
                     except GatewayAsk as ask:
-                        await self._pause_for_gateway(incident_id, tool_name, ask)
+                        await self._pause_for_gateway(
+                            incident_id, tool_name, ask, started_at=tool_started_at
+                        )
                         return
+                    tool_completed_at = utc_now()
                     data = _structured(result)
                     await self.repository.append_activity(
                         incident_id,
@@ -318,7 +341,12 @@ class ProductionCommandCenterRuntime:
                             status="complete",
                             status_label="ALLOW",
                             summary=_result_summary(data),
-                            details=[ActivityDatum(label="Decision", value="ALLOW")],
+                            details=[
+                                ActivityDatum(label="Decision", value="ALLOW"),
+                                ActivityDatum(label="Execution", value="Executed"),
+                            ],
+                            started_at=tool_started_at,
+                            completed_at=tool_completed_at,
                         ),
                         tool_call=True,
                     )
@@ -335,7 +363,12 @@ class ProductionCommandCenterRuntime:
                         if data.get("risk_band") == "high":
                             endpoint = self.settings.primary_model_endpoint
                     if tool_name == "submit_work_order":
-                        await self._complete_governed_action(incident_id, result)
+                        await self._complete_governed_action(
+                            incident_id,
+                            result,
+                            started_at=tool_started_at,
+                            completed_at=tool_completed_at,
+                        )
                         return
         except asyncio.CancelledError:
             raise
@@ -348,11 +381,15 @@ class ProductionCommandCenterRuntime:
                     status="failed",
                     status_label="Failed",
                     summary=str(exc),
+                    started_at=run_started_at,
+                    completed_at=utc_now(),
                 ),
             )
             await self.repository.fail_incident(incident_id, str(exc))
 
-    async def _pause_for_gateway(self, incident_id: str, tool_name: str, ask: GatewayAsk) -> None:
+    async def _pause_for_gateway(
+        self, incident_id: str, tool_name: str, ask: GatewayAsk, *, started_at: datetime
+    ) -> None:
         pending = PendingApproval(
             serialized_request=ask.serialized_request,
             elicitation_id=ask.elicitation.elicitation_id,
@@ -378,6 +415,8 @@ class ProductionCommandCenterRuntime:
                     kind="link",
                     href=ask.elicitation.url,
                 ),
+                started_at=started_at,
+                completed_at=None,
             ),
             tool_call=True,
         )
@@ -404,13 +443,27 @@ class ProductionCommandCenterRuntime:
         if not identity:
             return False
         try:
+            replay_started_at = utc_now()
             result = await self.gateway.replay(pending.serialized_request, identity.token)
         except GatewayAsk:
             return False
-        await self._complete_governed_action(incident_id, result)
+        replay_completed_at = utc_now()
+        await self._complete_governed_action(
+            incident_id,
+            result,
+            started_at=replay_started_at,
+            completed_at=replay_completed_at,
+        )
         return True
 
-    async def _complete_governed_action(self, incident_id: str, result: dict[str, Any]) -> None:
+    async def _complete_governed_action(
+        self,
+        incident_id: str,
+        result: dict[str, Any],
+        *,
+        started_at: datetime,
+        completed_at: datetime,
+    ) -> None:
         data = _structured(result)
         work_order_id = data.get("work_order_id", "Work order")
         await self.repository.append_activity(
@@ -425,7 +478,10 @@ class ProductionCommandCenterRuntime:
                 details=[
                     ActivityDatum(label="Work order", value=str(work_order_id)),
                     ActivityDatum(label="Decision", value="ALLOW"),
+                    ActivityDatum(label="Execution", value="Executed"),
                 ],
+                started_at=started_at,
+                completed_at=completed_at,
             ),
         )
         await self.repository.complete_incident(incident_id, str(work_order_id))
