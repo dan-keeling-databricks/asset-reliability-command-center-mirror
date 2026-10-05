@@ -84,6 +84,7 @@ type HistoryRecord = {
 };
 
 function App() {
+  const showLiveBackendWarning = import.meta.env.VITE_LOCAL_LIVE === "true";
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
   const [incident, setIncident] = useState<IncidentDetail | null>(null);
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
@@ -245,7 +246,7 @@ function App() {
 
   return (
     <main className="command-center">
-      {backendMode === "lakebase" && <div className="live-backend-banner" role="status"><strong>LIVE BACKEND</strong><span>Controls and approvals modify the shared Databricks demo environment.</span></div>}
+      {showLiveBackendWarning && backendMode === "lakebase" && <div className="live-backend-banner" role="status"><strong>LIVE BACKEND</strong><span>Controls and approvals modify the shared Databricks demo environment.</span></div>}
       <header className="command-header">
         <div className="brand-lockup"><div className="brand-glyph"><span /></div><div><p>Databricks Intelligence Platform</p><h1>Asset Reliability Command Center</h1></div></div>
         <div className="latency-panel">
