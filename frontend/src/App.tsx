@@ -84,7 +84,6 @@ type HistoryRecord = {
 };
 
 function App() {
-  const showLiveBackendWarning = import.meta.env.VITE_LOCAL_LIVE === "true";
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
   const [incident, setIncident] = useState<IncidentDetail | null>(null);
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
@@ -94,7 +93,6 @@ function App() {
   const [followUp, setFollowUp] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [backendMode, setBackendMode] = useState<"local" | "lakebase">("local");
   const [fontScale, setFontScale] = useState(() => {
     const saved = Number(localStorage.getItem("command-center-font-scale"));
     return [100, 110, 120, 130].includes(saved) ? saved : 100;
@@ -116,13 +114,9 @@ function App() {
     let disposed = false;
     void (async () => {
       try {
-        const [initial, health] = await Promise.all([
-          jsonRequest<DashboardSnapshot>("/api/dashboard"),
-          jsonRequest<{ adapter: "local" | "lakebase" }>("/api/health")
-        ]);
+        const initial = await jsonRequest<DashboardSnapshot>("/api/dashboard");
         if (disposed) return;
         setSnapshot(initial);
-        setBackendMode(health.adapter);
         source = new EventSource(`/api/events?after=${initial.revision}`);
         source.onmessage = (event) => {
           setSnapshot(JSON.parse(event.data) as DashboardSnapshot);
@@ -246,7 +240,6 @@ function App() {
 
   return (
     <main className="command-center">
-      {showLiveBackendWarning && backendMode === "lakebase" && <div className="live-backend-banner" role="status"><strong>LIVE BACKEND</strong><span>Controls and approvals modify the shared Databricks demo environment.</span></div>}
       <header className="command-header">
         <div className="brand-lockup"><div className="brand-glyph"><span /></div><div><p>Databricks Intelligence Platform</p><h1>Asset Reliability Command Center</h1></div></div>
         <div className="latency-panel">

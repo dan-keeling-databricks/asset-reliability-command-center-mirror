@@ -14,14 +14,11 @@ class Settings(BaseSettings):
     lakebase_dsn: str | None = None
     lakebase_schema: str = "asset_reliability"
     lakebase_job_principal: str | None = None
-    lakebase_migrate_on_start: bool = True
     sse_coalesce_seconds: float = 0.05
     telemetry_retention_seconds: int = 86_400
     telemetry_retention_interval_seconds: float = 300.0
     telemetry_retention_batch_size: int = 1_000
     databricks_host: str | None = None
-    local_databricks_auth: bool = False
-    databricks_config_profile: str | None = None
     primary_model_endpoint: str = "databricks-claude-sonnet-4-5"
     fast_model_endpoint: str = "databricks-gpt-5-1"
     governed_mcp_endpoint: str | None = None
