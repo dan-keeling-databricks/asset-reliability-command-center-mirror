@@ -49,6 +49,7 @@ class ProductionCommandCenterRuntime:
         self._evaluator_task: asyncio.Task[None] | None = None
         self._run_tasks: set[asyncio.Task[None]] = set()
         self._last_subject: str | None = None
+        self._identity_scenario_id: str | None = None
 
     async def start(self) -> None:
         await self.repository.start()
@@ -77,9 +78,11 @@ class ProductionCommandCenterRuntime:
         identity = self.identities.capture(scenario_id, token)
         if identity:
             self._last_subject = identity.subject
+            self._identity_scenario_id = scenario_id
 
     async def restart(self) -> str:
         self.identities.clear()
+        self._identity_scenario_id = None
         return await self.repository.restart_scenario(self._last_subject)
 
     async def trigger_excursion(self) -> str:
@@ -146,8 +149,9 @@ class ProductionCommandCenterRuntime:
         while True:
             await asyncio.sleep(self.settings.alert_evaluator_interval_seconds)
             try:
-                snapshot = await self.repository.snapshot()
-                if not self.identities.get(snapshot.scenario.id):
+                if not self._identity_scenario_id or not self.identities.get(
+                    self._identity_scenario_id
+                ):
                     continue
                 for incident_id, run_id in await self.repository.evaluate_thresholds():
                     incident = await self.repository.incident(incident_id)
