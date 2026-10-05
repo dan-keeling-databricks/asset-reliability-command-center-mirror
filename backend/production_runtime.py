@@ -23,6 +23,8 @@ from backend.models import (
 )
 from backend.settings import Settings
 
+MCP_ACTIVITY_ACTOR = "asset_reliability_mcp"
+
 
 class ProductionCommandCenterRuntime:
     """Concurrent code-defined agent runtime over canonical Lakebase state."""
@@ -247,11 +249,11 @@ class ProductionCommandCenterRuntime:
                 RuntimeActivity(
                     category="mcp",
                     title="Discover governed maintenance capabilities",
-                    actor=self.settings.governed_mcp_endpoint,
+                    actor=MCP_ACTIVITY_ACTOR,
                     status="complete",
                     status_label="Connected",
                     summary=f"Unity Gateway exposed {len(available)} governed tools at runtime.",
-                    details=[ActivityDatum(label="Available", value=", ".join(sorted(available)))],
+                    details=[ActivityDatum(label="Available", value="\n".join(sorted(available)))],
                     started_at=discovery_started_at,
                     completed_at=discovery_completed_at,
                 ),

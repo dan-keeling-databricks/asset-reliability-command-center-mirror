@@ -399,6 +399,20 @@ function gatewayDecision(activity: RuntimeActivity) {
   return decision && ["ALLOW", "ASK", "DENY"].includes(decision) ? decision : null;
 }
 
+function ActivityDetails({ activity, details }: { activity: RuntimeActivity; details: RuntimeActivity["details"] }) {
+  return <dl>{details.map((detail) => {
+    const isMcpToolInventory = activity.category === "mcp" && detail.label.toLowerCase() === "available";
+    if (!isMcpToolInventory) {
+      return <div key={`${activity.id}-${detail.label}`}><dt>{detail.label}</dt><dd>{detail.value}</dd></div>;
+    }
+
+    const tools = detail.value.split("\n").map((tool) => tool.trim()).filter(Boolean);
+    const splitAt = Math.ceil(tools.length / 2);
+    const columns = [tools.slice(0, splitAt), tools.slice(splitAt)].filter((column) => column.length > 0);
+    return <div className="mcp-tool-detail" key={`${activity.id}-${detail.label}`}><dt>{detail.label}</dt><dd className="mcp-tool-columns">{columns.map((column, index) => <ul key={`${activity.id}-${detail.label}-${index}`}>{column.map((tool) => <li key={tool}>{tool}</li>)}</ul>)}</dd></div>;
+  })}</dl>;
+}
+
 function ActivityCard({ activity, busy, runAction, compact = false }: { activity: RuntimeActivity; busy: boolean; runAction: (action: RuntimeAction) => Promise<void>; compact?: boolean }) {
   const category = activity.status === "waiting" ? "approval" : activity.category;
   const policy = gatewayDecision(activity);
@@ -409,7 +423,7 @@ function ActivityCard({ activity, busy, runAction, compact = false }: { activity
   const reviewAction = activity.action?.href ? { ...activity.action, endpoint: undefined } : null;
   const continueAction = activity.action?.endpoint ? { ...activity.action, href: undefined } : null;
   const actions = activity.action && <div className="runtime-actions">{reviewAction && <button className="runtime-action" disabled={busy} onClick={() => void runAction(reviewAction)}>Review</button>}{continueAction && <button className="runtime-action runtime-action-primary" disabled={busy} onClick={() => void runAction(continueAction)}>I've approved, continue</button>}</div>;
-  return <article className={`chat-event runtime-event event-${activity.status} ${compact ? "compact-card" : ""}`}><EventIcon category={category} /><div className="event-content"><div className="event-kicker"><span>{typeLabel}</span><time>{timeLabel(activity.emitted_at)}</time></div><div className="event-title"><div><strong>{activity.title}</strong>{activity.actor && <span>{activity.actor}</span>}</div><span className={`runtime-status runtime-status-${activity.status}`}>{runtimeLabel}</span></div>{activity.summary && (activity.category === "model_call" ? <section className="event-output"><strong>Output</strong><AgentMessage content={activity.summary} /></section> : <p>{activity.summary}</p>)}{details.length > 0 && <dl>{details.map((detail) => <div key={`${activity.id}-${detail.label}`}><dt>{detail.label}</dt><dd>{detail.value}</dd></div>)}</dl>}{policy && <section className={`gateway-policy policy-${policy.toLowerCase()}`}><strong>Unity Gateway policy applied</strong><span>{policy}</span><p>{activity.details.find((detail) => detail.label.toLowerCase() === "execution")?.value ?? (policy === "ALLOW" ? "Execution occurred" : "Execution did not occur")}</p>{actions}</section>}{!policy && actions}<footer className="event-footer">{tokenTotal > 0 && <span>Total tokens <strong>{tokenTotal.toLocaleString()}</strong></span>}</footer></div></article>;
+  return <article className={`chat-event runtime-event event-${activity.status} ${compact ? "compact-card" : ""}`}><EventIcon category={category} /><div className="event-content"><div className="event-kicker"><span>{typeLabel}</span><time>{timeLabel(activity.emitted_at)}</time></div><div className="event-title"><div><strong>{activity.title}</strong>{activity.actor && <span>{activity.actor}</span>}</div><span className={`runtime-status runtime-status-${activity.status}`}>{runtimeLabel}</span></div>{activity.summary && (activity.category === "model_call" ? <section className="event-output"><strong>Output</strong><AgentMessage content={activity.summary} /></section> : <p>{activity.summary}</p>)}{details.length > 0 && <ActivityDetails activity={activity} details={details} />}{policy && <section className={`gateway-policy policy-${policy.toLowerCase()}`}><strong>Unity Gateway policy applied</strong><span>{policy}</span><p>{activity.details.find((detail) => detail.label.toLowerCase() === "execution")?.value ?? (policy === "ALLOW" ? "Execution occurred" : "Execution did not occur")}</p>{actions}</section>}{!policy && actions}<footer className="event-footer">{tokenTotal > 0 && <span>Total tokens <strong>{tokenTotal.toLocaleString()}</strong></span>}</footer></div></article>;
 }
 
 type TimelineHover = { activity: RuntimeActivity; left: number; top: number; width: number };
