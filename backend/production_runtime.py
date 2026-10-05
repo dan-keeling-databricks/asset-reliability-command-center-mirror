@@ -313,39 +313,39 @@ class ProductionCommandCenterRuntime:
                     _canonical_decision_rationale(summary, tool_names) if tool_calls else None
                 )
                 if tool_calls and not canonical_rationale:
-                    rationale = await self.model.turn(
-                        endpoint,
-                        [
-                            {
-                                "role": "system",
-                                "content": (
-                                    "Return one prospective sentence exactly beginning "
-                                    f"`{_rationale_prefix(tool_names)}` followed by the "
-                                    "evidence-based reason. Do not claim any call already ran, "
-                                    "returned, completed, or produced a result."
-                                ),
-                            },
-                            {
-                                "role": "user",
-                                "content": (
-                                    "Explain the evidence-based reason for the selected governed "
-                                    "tool call(s). Selected calls: "
-                                    f"{json.dumps(tool_calls)}. Recent context: "
-                                    f"{json.dumps(messages[-3:])}"
-                                ),
-                            },
-                        ],
-                    )
-                    summary = str(rationale.message.get("content") or "")
-                    input_tokens += rationale.input_tokens
-                    output_tokens += rationale.output_tokens
-                    turn_completed_at = utc_now()
-                    canonical_rationale = _canonical_decision_rationale(summary, tool_names)
-                    if not canonical_rationale:
-                        raise RuntimeError(
-                            "Model did not return a usable tool-selection rationale after "
-                            "correction"
+                    try:
+                        rationale = await self.model.turn(
+                            endpoint,
+                            [
+                                {
+                                    "role": "system",
+                                    "content": (
+                                        "Return one prospective sentence exactly beginning "
+                                        f"`{_rationale_prefix(tool_names)}` followed by the "
+                                        "evidence-based reason. Do not claim any call already ran, "
+                                        "returned, completed, or produced a result."
+                                    ),
+                                },
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        "Explain the evidence-based reason for the selected "
+                                        "governed tool call(s). Selected calls: "
+                                        f"{json.dumps(tool_calls)}. Recent context: "
+                                        f"{json.dumps(messages[-3:])}"
+                                    ),
+                                },
+                            ],
                         )
+                        summary = str(rationale.message.get("content") or "")
+                        input_tokens += rationale.input_tokens
+                        output_tokens += rationale.output_tokens
+                        turn_completed_at = utc_now()
+                        canonical_rationale = _canonical_decision_rationale(summary, tool_names)
+                    except Exception:  # Rationale formatting must never fail the agent run.
+                        canonical_rationale = None
+                    if not canonical_rationale:
+                        canonical_rationale = _fallback_decision_rationale(tool_names)
                 if canonical_rationale:
                     summary = canonical_rationale
                 await self.repository.append_activity(
@@ -753,6 +753,18 @@ def _rationale_prefix(tool_names: list[str]) -> str:
         else f"{', '.join(tool_names[:-1])} and {tool_names[-1]}"
     )
     return f"Decision rationale: I will call {calls} because "
+
+
+def _fallback_decision_rationale(tool_names: list[str]) -> str:
+    reason = (
+        "the current incident evidence requires this governed capability"
+        if len(tool_names) == 1
+        else "the current incident evidence requires these governed capabilities"
+    )
+    rationale = f"{_rationale_prefix(tool_names)}{reason}."
+    if not _valid_decision_rationale(rationale, tool_names):
+        raise AssertionError("Deterministic rationale fallback violated its own format")
+    return rationale
 
 
 def _valid_decision_rationale(content: str, tool_names: list[str]) -> bool:

@@ -76,7 +76,10 @@ Lakeflow Declarative Pipelines Real-Time Mode. RTM ingestion owns no alert or ag
 3. The runtime loads the governed UC Skill and discovers the current MCP tool surface. Only
    then are skill, server, model, and tool events persisted for the UI.
 4. GPT-5.1 selects initial evidence actions. A high-risk result routes subsequent reasoning
-   to Sonnet 4.5. The runtime imposes no tool-call cap or fixed visualization stages.
+   to Sonnet 4.5. Tool-selection rationales receive one model correction attempt; if its
+   presentation remains unusable, the runtime emits a deterministic prospective rationale
+   naming the selected tools and continues. The runtime imposes no tool-call cap or fixed
+   visualization stages.
 5. Business calls traverse Unity Gateway with the captured user identity. Current tools are
    `get_asset_telemetry`, `assess_failure_risk`, `prepare_work_order`, and
    `submit_work_order`.

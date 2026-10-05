@@ -7,14 +7,116 @@ import pytest
 
 from backend.gateway import GatewayAsk, GatewayElicitation
 from backend.identity import OboIdentityRegistry
+from backend.model_client import ModelTurn
 from backend.models import IncidentDetail, PendingApproval
 from backend.production_runtime import (
     ProductionCommandCenterRuntime,
     _canonical_decision_rationale,
     _canonical_terminal_response,
+    _fallback_decision_rationale,
     _valid_decision_rationale,
     _valid_terminal_response,
 )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("initial", "corrected", "expected_tokens"),
+    [
+        ("", "", (14, 3)),
+        ("```text\n```", "** **", (14, 3)),
+        ("", RuntimeError("rationale correction unavailable"), (10, 2)),
+    ],
+)
+async def test_unusable_rationale_falls_back_and_selected_tool_executes(
+    initial: str, corrected: str | Exception, expected_tokens: tuple[int, int]
+) -> None:
+    runtime = ProductionCommandCenterRuntime.__new__(ProductionCommandCenterRuntime)
+    incident = IncidentDetail(
+        scenario_id="scenario-1",
+        asset_id="P-204",
+        title="Bearing risk",
+        condition="Persistent drive-end vibration.",
+        trigger_prompt="Assess the alert.",
+    )
+    runtime.repository = SimpleNamespace(
+        incident=AsyncMock(return_value=incident),
+        append_activity=AsyncMock(),
+        complete_incident=AsyncMock(),
+        fail_incident=AsyncMock(),
+    )
+    runtime.settings = SimpleNamespace(
+        governed_skill_tool="reliability-investigation",
+        governed_mcp_endpoint="https://gateway.example/mcp",
+        fast_model_endpoint="fast-model",
+        primary_model_endpoint="primary-model",
+        model_input_cost_per_million=1.0,
+        model_output_cost_per_million=1.0,
+    )
+    runtime._wait_for_identity = AsyncMock(return_value=SimpleNamespace(token="obo-token"))
+    runtime.skill_gateway = SimpleNamespace(
+        call_tool=AsyncMock(
+            return_value={"result": {"structuredContent": {"result": "Follow procedure"}}}
+        )
+    )
+    tool_call = {
+        "id": "call-1",
+        "function": {"name": "submit_work_order", "arguments": "{}"},
+    }
+    correction_result = (
+        corrected
+        if isinstance(corrected, Exception)
+        else ModelTurn(
+            message={"role": "assistant", "content": corrected},
+            input_tokens=4,
+            output_tokens=1,
+        )
+    )
+    runtime.model = SimpleNamespace(
+        turn=AsyncMock(
+            side_effect=[
+                ModelTurn(
+                    message={"role": "assistant", "content": initial, "tool_calls": [tool_call]},
+                    input_tokens=10,
+                    output_tokens=2,
+                ),
+                correction_result,
+            ]
+        )
+    )
+    runtime.gateway = SimpleNamespace(
+        list_tools=AsyncMock(
+            return_value=[
+                {
+                    "name": "submit_work_order",
+                    "description": "Submit approved maintenance",
+                    "inputSchema": {"type": "object"},
+                }
+            ]
+        ),
+        call_tool=AsyncMock(
+            return_value={"result": {"structuredContent": {"work_order_id": "WO-10482"}}}
+        ),
+    )
+
+    await runtime._run_agent("incident-1")
+
+    runtime.gateway.call_tool.assert_awaited_once_with(
+        "submit_work_order", {}, "obo-token"
+    )
+    runtime.repository.complete_incident.assert_awaited_once_with("incident-1", "WO-10482")
+    runtime.repository.fail_incident.assert_not_awaited()
+    rationale_activity = next(
+        call.args[1]
+        for call in runtime.repository.append_activity.await_args_list
+        if call.args[1].category == "model_call"
+    )
+    assert rationale_activity.summary == _fallback_decision_rationale(["submit_work_order"])
+    assert _valid_decision_rationale(rationale_activity.summary, ["submit_work_order"])
+    assert [(detail.label, detail.value) for detail in rationale_activity.details[:2]] == [
+        ("Input tokens", str(expected_tokens[0])),
+        ("Output tokens", str(expected_tokens[1])),
+    ]
 
 
 @pytest.mark.asyncio
