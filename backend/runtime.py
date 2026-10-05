@@ -356,6 +356,7 @@ class LocalCommandCenterRuntime:
                     actor="databricks-claude-sonnet-4-5",
                     status="complete",
                     status_label="Completed",
+                    display_scope="timeline",
                     summary="Answered using persisted incident context.",
                     details=[
                         ActivityDatum(label="Output tokens", value="96"),

@@ -8,7 +8,7 @@ import pytest
 from backend.gateway import GatewayAsk, GatewayElicitation
 from backend.identity import OboIdentityRegistry
 from backend.model_client import ModelTurn
-from backend.models import IncidentDetail, PendingApproval
+from backend.models import IncidentDetail, PendingApproval, RuntimeActivity
 from backend.production_runtime import (
     ProductionCommandCenterRuntime,
     _canonical_decision_rationale,
@@ -17,6 +17,19 @@ from backend.production_runtime import (
     _valid_decision_rationale,
     _valid_terminal_response,
 )
+
+
+def test_runtime_activity_display_scope_defaults_to_all_for_existing_records() -> None:
+    activity = RuntimeActivity.model_validate(
+        {
+            "category": "model_call",
+            "title": "Existing activity",
+            "status": "complete",
+            "status_label": "Completed",
+        }
+    )
+
+    assert activity.display_scope == "all"
 
 
 @pytest.mark.asyncio

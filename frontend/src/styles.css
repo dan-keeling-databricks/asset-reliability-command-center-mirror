@@ -220,7 +220,8 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .markdown-message code { padding: 1px 4px; border-radius: 4px; background: #f0f0ed; font: .92em "DM Mono", monospace; }
 .markdown-message pre { max-width: 100%; margin: 7px 0 9px; padding: 9px 10px; overflow-x: auto; border: 1px solid #e2e2de; border-radius: 7px; background: #f7f7f5; }
 .markdown-message pre code { padding: 0; background: transparent; }
-.follow-up-status.agent-active { position: static; width: min(100% - 37px, 893px); margin: 4px auto 10px 37px; inset: auto; }
+.follow-up-status-row { max-width: 930px; margin: 4px auto 10px; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 9px; }
+.follow-up-status.agent-active { position: static; width: 100%; margin: 0; inset: auto; }
 .follow-up-status.agent-active span { max-width: none; white-space: normal; }
 .incident-workspace > .follow-up { flex: 0 0 auto; padding: 9px 0 11px; border-top: 1px solid #e3e3df; }
 

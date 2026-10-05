@@ -168,6 +168,9 @@ def test_approval_and_follow_up_complete_incident() -> None:
             for detail in activity["details"]
         )
 
+        tokens_before_follow_up = (
+            incident["totals"]["input_tokens"] + incident["totals"]["output_tokens"]
+        )
         follow_up = client.post(
             f"/api/incidents/{incident_id}/follow-up",
             json={"message": "What was scheduled?"},
@@ -179,6 +182,16 @@ def test_approval_and_follow_up_complete_incident() -> None:
             "agent",
         ]
         assert "WO-10482" in incident["conversation"][-1]["content"]
+        follow_up_activity = next(
+            activity
+            for activity in reversed(incident["activities"])
+            if activity["category"] == "model_call"
+        )
+        assert follow_up_activity["display_scope"] == "timeline"
+        assert (
+            incident["totals"]["input_tokens"] + incident["totals"]["output_tokens"]
+            > tokens_before_follow_up
+        )
 
 
 def test_restart_is_idempotent_and_clears_scenario_history() -> None:

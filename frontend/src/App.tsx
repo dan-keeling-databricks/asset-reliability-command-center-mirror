@@ -302,7 +302,9 @@ function App() {
   }
 
   const conversationItems = incident ? [
-    ...incident.activities.map((activity) => ({ kind: "activity" as const, at: activity.emitted_at, activity })),
+    ...incident.activities
+      .filter((activity) => activity.display_scope !== "timeline")
+      .map((activity) => ({ kind: "activity" as const, at: activity.emitted_at, activity })),
     ...incident.conversation.map((turn) => ({ kind: "message" as const, at: turn.created_at, turn }))
   ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime()) : [];
   const isOperator = snapshot.viewer?.is_operator ?? false;
@@ -381,7 +383,7 @@ function App() {
               {incidentView === "conversation" ? <div className="unified-conversation" ref={conversationRef}>
                 {!conversationItems.length && <div className="timeline-empty"><i />Waiting for the first runtime event…</div>}
                 {conversationItems.map((item) => item.kind === "activity" ? <ActivityCard key={item.activity.id} activity={item.activity} busy={busy} runAction={runAction} /> : <article className={`chat-event chat-${item.turn.role}`} key={item.turn.id}><EventIcon category={item.turn.role} /><div><div className="chat-meta"><strong>{item.turn.role === "operator" ? "You" : "Final response"}</strong><time>{timeLabel(item.turn.created_at)}</time></div>{item.turn.role === "agent" ? <AgentMessage content={item.turn.content} /> : <p>{item.turn.content}</p>}</div></article>)}
-                {followUpPending && <div className="agent-active follow-up-status" role="status" aria-live="polite"><div className="agent-orbit" aria-hidden="true"><i /></div><div><strong>Follow-up in progress</strong><span>Agent is working on a response</span></div></div>}
+                {followUpPending && <div className="follow-up-status-row"><div aria-hidden="true" /><div className="agent-active follow-up-status" role="status" aria-live="polite"><div className="agent-orbit" aria-hidden="true"><i /></div><div><strong>Follow-up in progress</strong><span>Agent is working on a response</span></div></div></div>}
               </div> : <ExecutionTimeline activities={incident.activities} />}
               <form className="follow-up" onSubmit={submitFollowUp}><label htmlFor="follow-up">Ask a follow-up</label><div><input id="follow-up" value={followUp} onChange={(event) => setFollowUp(event.target.value)} placeholder={isOperator ? "Ask about evidence, risk, or the response…" : "Only the current operator can ask follow-ups"} disabled={!isOperator || busy || followUpPending} /><button disabled={!isOperator || busy || followUpPending || !followUp.trim()}>Send</button></div></form>
             </div>
