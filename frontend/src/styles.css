@@ -260,15 +260,14 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .execution-scale { max-width: none; padding: 0 14px 0 110px; }
 .gantt-lane { min-height: 108px; padding: 12px 14px; display: grid; grid-template-columns: 90px minmax(0, 1fr); align-items: center; gap: 12px; border-bottom: 1px solid #e8e8e4; }
 .gantt-lane h3 { margin: 0; }
-.gantt-lane .execution-track { height: 68px; overflow: visible; }
+.gantt-lane .execution-track { min-width: 900px; height: 68px; overflow: visible; }
 .gantt-lane .execution-bar { top: 24px; min-width: 8px; height: 20px; cursor: help; }
-.gantt-lane .execution-bar > i { left: calc(100% + 7px); top: 1px; max-width: 170px; overflow: hidden; color: #404047; text-overflow: ellipsis; }
+.gantt-lane .execution-bar > i { left: calc(100% + 7px); top: 1px; color: #404047; }
 .category-model_call { background: #c8c4ec; }
 .category-skill { background: #efd08b; }
 .category-tool_call, .category-tool_result, .category-mcp { background: #bddde8; }
 .gantt-lane .bar-waiting { width: 18px !important; min-width: 18px; }
-.gantt-popover { position: fixed; z-index: 30; left: 50%; top: 50%; width: min(700px, calc(100vw - 48px)); max-height: calc(100vh - 48px); padding: 10px; display: none; overflow: auto; transform: translate(-50%, -50%); border: 1px solid #d4d4cf; border-radius: 11px; background: #fbfbf9; box-shadow: 0 18px 60px rgba(20, 20, 22, .22); }
-.execution-bar:hover .gantt-popover, .execution-bar:focus .gantt-popover { display: block; }
+.gantt-popover { position: fixed; z-index: 30; max-height: calc(100vh - 48px); padding: 10px; overflow: auto; border: 1px solid #d4d4cf; border-radius: 11px; background: #fbfbf9; box-shadow: 0 18px 60px rgba(20, 20, 22, .22); }
 .gantt-popover .chat-event { margin: 0; text-align: left; }
 .gantt-popover .runtime-event .event-content { min-height: 0; }
 

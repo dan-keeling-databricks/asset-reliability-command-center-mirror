@@ -341,6 +341,12 @@ function ActivityCard({ activity, busy, runAction, compact = false }: { activity
 }
 
 function ExecutionTimeline({ activities }: { activities: RuntimeActivity[] }) {
+  const [hovered, setHovered] = useState<{
+    activity: RuntimeActivity;
+    left: number;
+    top: number;
+    width: number;
+  } | null>(null);
   const shown = activities.filter((activity) => ["model_call", "skill", "tool_call", "tool_result", "mcp"].includes(activity.category));
   const start = shown.length ? Math.min(...shown.map((activity) => new Date(activity.started_at ?? activity.emitted_at).getTime())) : 0;
   const end = shown.length ? Math.max(...shown.map((activity) => new Date(activity.completed_at ?? activity.emitted_at).getTime()), start + 1000) : start + 1000;
@@ -351,8 +357,21 @@ function ExecutionTimeline({ activities }: { activities: RuntimeActivity[] }) {
     const activityEnd = new Date(activity.completed_at ?? activity.emitted_at).getTime();
     const left = Math.min(88, ((activityStart - start) / range) * 88);
     const width = activity.status === "waiting" ? 3 : Math.max(2, Math.min(25, ((Math.max(activityEnd, activityStart + 250) - activityStart) / range) * 88));
-    return <div className={`execution-bar category-${activity.category} bar-${activity.status}`} key={activity.id} style={{ left: `${left}%`, width: `${width}%` }} tabIndex={0}><i>{activity.title}</i><div className="gantt-popover"><ActivityCard activity={activity} busy={false} runAction={async () => undefined} compact /></div></div>;
-  })}</div></section>)}</div>;
+    const showCard = (target: HTMLElement) => {
+      const rect = target.getBoundingClientRect();
+      const popoverWidth = Math.min(700, window.innerWidth - 48);
+      const leftPosition = window.innerWidth - rect.right >= popoverWidth + 20
+        ? rect.right + 12
+        : Math.max(24, rect.left - popoverWidth - 12);
+      setHovered({
+        activity,
+        left: leftPosition,
+        top: Math.max(24, Math.min(rect.top, window.innerHeight - 544)),
+        width: popoverWidth
+      });
+    };
+    return <div className={`execution-bar category-${activity.category} bar-${activity.status}`} key={activity.id} style={{ left: `${left}%`, width: `${width}%` }} tabIndex={0} onMouseEnter={(event) => showCard(event.currentTarget)} onMouseLeave={() => setHovered(null)} onFocus={(event) => showCard(event.currentTarget)} onBlur={() => setHovered(null)}><i>{activity.title}</i></div>;
+  })}</div></section>)}{hovered && <div className="gantt-popover" style={{ left: hovered.left, top: hovered.top, width: hovered.width }}><ActivityCard activity={hovered.activity} busy={false} runAction={async () => undefined} compact /></div>}</div>;
 }
 
 export default App;
