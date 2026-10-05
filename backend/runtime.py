@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import math
 from collections.abc import Coroutine
+from datetime import timedelta
 from typing import Any, Protocol
 
 from backend.models import (
@@ -36,14 +37,14 @@ class CommandCenterRuntime(Protocol):
 
 
 PUMP_DEFINITIONS = [
-    ("P-201", "Cooling Water Pump P-201", "Cooling loop A", 1.35, 182.0, 42.0),
+    ("P-201", "Cooling Water Pump P-201", "Cooling loop A", 1.20, 182.0, 42.0),
     ("P-202", "Cooling Water Pump P-202", "Cooling loop A", 1.45, 179.0, 41.5),
-    ("P-203", "Cooling Water Pump P-203", "Cooling loop A", 1.30, 185.0, 42.5),
-    ("P-204", "Cooling Water Pump P-204", "Cooling loop A", 1.55, 181.0, 42.0),
-    ("P-205", "Cooling Water Pump P-205", "Cooling loop B", 1.40, 177.0, 41.0),
-    ("P-206", "Cooling Water Pump P-206", "Cooling loop B", 1.25, 184.0, 42.4),
-    ("P-207", "Cooling Water Pump P-207", "Cooling loop B", 1.50, 180.0, 41.8),
-    ("P-208", "Cooling Water Pump P-208", "Cooling loop B", 1.32, 183.0, 42.1),
+    ("P-203", "Cooling Water Pump P-203", "Cooling loop A", 1.70, 185.0, 42.5),
+    ("P-204", "Cooling Water Pump P-204", "Cooling loop A", 1.95, 181.0, 42.0),
+    ("P-205", "Cooling Water Pump P-205", "Cooling loop B", 2.20, 177.0, 41.0),
+    ("P-206", "Cooling Water Pump P-206", "Cooling loop B", 2.45, 184.0, 42.4),
+    ("P-207", "Cooling Water Pump P-207", "Cooling loop B", 2.70, 180.0, 41.8),
+    ("P-208", "Cooling Water Pump P-208", "Cooling loop B", 2.95, 183.0, 42.1),
 ]
 
 
@@ -215,7 +216,13 @@ class LocalCommandCenterRuntime:
                 raise ValueError("Approval activity was not found")
             waiting.status = "complete"
             waiting.status_label = "APPROVED · ALLOW"
+            waiting.completed_at = utc_now()
             waiting.summary = "Approval confirmed; the governed action executed."
+            for detail in waiting.details:
+                if detail.label == "Decision":
+                    detail.value = "ALLOW"
+                elif detail.label == "Execution":
+                    detail.value = "Executed after approval"
             waiting.action = None
             current.activities.append(
                 RuntimeActivity(
@@ -613,6 +620,13 @@ class LocalCommandCenterRuntime:
             if incident_id not in incidents:
                 return
             current = incidents[incident_id]
+            completed_at = utc_now()
+            duration_ms = {"model_call": 180, "skill": 100, "tool_call": 140}.get(
+                activity.category, 80
+            )
+            activity.emitted_at = completed_at
+            activity.started_at = completed_at - timedelta(milliseconds=duration_ms)
+            activity.completed_at = None if activity.status == "waiting" else completed_at
             current.activities.append(activity)
             current.updated_at = utc_now()
             if tokens:

@@ -90,6 +90,8 @@ export type RuntimeActivity = {
   details: { label: string; value: string }[];
   action?: RuntimeAction | null;
   emitted_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
 };
 
 export type IncidentDetail = {

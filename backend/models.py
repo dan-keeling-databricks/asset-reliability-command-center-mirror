@@ -97,6 +97,8 @@ class RuntimeActivity(BaseModel):
     details: list[ActivityDatum] = Field(default_factory=list)
     action: RuntimeAction | None = None
     emitted_at: datetime = Field(default_factory=utc_now)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
 
 class ConversationTurn(BaseModel):

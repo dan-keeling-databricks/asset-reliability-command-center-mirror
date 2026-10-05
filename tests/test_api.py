@@ -146,3 +146,13 @@ def test_restart_is_idempotent_and_clears_scenario_history() -> None:
         assert state["alerts"] == []
         assert state["invocations"] == []
         assert all(pump["state"] == "normal" for pump in state["pumps"])
+
+
+def test_local_fleet_has_stable_widely_spaced_normal_baselines() -> None:
+    snapshot = initial_snapshot()
+    vibrations = [pump.vibration_mm_s for pump in snapshot.pumps]
+
+    assert vibrations == sorted(vibrations)
+    assert min(vibrations) == 1.2
+    assert max(vibrations) == 2.95
+    assert all(value < 4.4 for value in vibrations)

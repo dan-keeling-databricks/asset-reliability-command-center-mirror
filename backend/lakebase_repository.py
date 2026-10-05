@@ -583,6 +583,8 @@ class LakebaseCommandCenterRepository:
                         status_label=event["status"] or "Info",
                         summary=event["detail"],
                         emitted_at=event["occurred_at"],
+                        started_at=event["occurred_at"],
+                        completed_at=event["occurred_at"],
                     )
                 )
         conversation = [

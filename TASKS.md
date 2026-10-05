@@ -30,6 +30,7 @@ existing `classic_stable_realtime_demos_catalog` and the dedicated
 | Performance | Add non-blocking 24-hour batched telemetry retention | Complete |
 | Developer experience | Provide safe simulator and authenticated live-backend local modes | Complete |
 | Developer experience | Mark shared-backend sessions visibly and support configurable local ports | Complete |
+| UI | Add presentation typography controls and second-round incident conversation/Gantt refinements | Complete on `feat/ui_feedback_round_two` |
 | UI feedback round 1 | Simplify fleet navigation, latency, controls, and consolidated history | In review |
 | UI feedback round 1 | Unify incident conversation, prompt context, event icons, and execution timeline | In review |
 | Repository | Document architecture, manual deployment, and multi-agent worktree conventions | Complete |

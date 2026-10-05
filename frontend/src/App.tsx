@@ -94,12 +94,21 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [backendMode, setBackendMode] = useState<"local" | "lakebase">("local");
+  const [fontScale, setFontScale] = useState(() => {
+    const saved = Number(localStorage.getItem("command-center-font-scale"));
+    return [100, 110, 120, 130].includes(saved) ? saved : 100;
+  });
   const conversationRef = useRef<HTMLDivElement>(null);
 
   const refreshIncident = useCallback(async (incidentId: string) => {
     const detail = await jsonRequest<IncidentDetail>(`/api/incidents/${incidentId}`);
     setIncident(detail);
   }, []);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--font-scale", String(fontScale / 100));
+    localStorage.setItem("command-center-font-scale", String(fontScale));
+  }, [fontScale]);
 
   useEffect(() => {
     let source: EventSource | null = null;
@@ -247,7 +256,7 @@ function App() {
         </div>
         <div className="demo-menu-wrap">
           <button className="menu-button" aria-label="Open demo controls" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}><i /><i /><i /></button>
-          {menuOpen && <div className="demo-menu"><p>Demo controls</p><button onClick={() => void trigger()} disabled={busy || snapshot.scenario.p204_triggered}>Trigger P-204 excursion<span>Start the governed failure scenario</span></button><button className="menu-danger" onClick={() => void restart()} disabled={busy}>Clear & restart<span>Reset all scenario activity</span></button></div>}
+          {menuOpen && <div className="demo-menu"><p>Demo controls</p><div className="text-size-control"><span>Text size</span><button aria-label="Decrease text size" onClick={() => setFontScale((value) => Math.max(100, value - 10))} disabled={fontScale === 100}>−</button><strong>{fontScale}%</strong><button aria-label="Increase text size" onClick={() => setFontScale((value) => Math.min(130, value + 10))} disabled={fontScale === 130}>+</button></div><button onClick={() => void trigger()} disabled={busy || snapshot.scenario.p204_triggered}>Trigger P-204 excursion<span>Start the governed failure scenario</span></button><button className="menu-danger" onClick={() => void restart()} disabled={busy}>Clear & restart<span>Reset all scenario activity</span></button></div>}
         </div>
       </header>
 
@@ -300,13 +309,9 @@ function App() {
         <div className="overlay-backdrop" onClick={() => setSelectedIncidentId(null)} />
         <section className="incident-review">
           {!incident ? <div className="incident-loading">Loading incident review…</div> : <>
-            <header className="incident-header"><div><p>Incident review · {incident.asset_id}</p><h2>{incident.title}</h2></div><StatusPill status={incident.status} label={incident.status_label} /><button className="close-button" onClick={() => setSelectedIncidentId(null)} aria-label="Close incident review">×</button></header>
+            <header className="incident-header"><div><p>Incident review · {incident.asset_id}</p><h2>{incident.title}</h2></div><div className="view-toggle"><button className={incidentView === "conversation" ? "active" : ""} onClick={() => setIncidentView("conversation")}>Conversation</button><button className={incidentView === "timeline" ? "active" : ""} onClick={() => setIncidentView("timeline")}>Execution timeline</button></div><StatusPill status={incident.status} label={incident.status_label} /><button className="close-button" onClick={() => setSelectedIncidentId(null)} aria-label="Close incident review">×</button></header>
             <div className="incident-workspace">
-              <details className="prompt-summary">
-                <summary><div className="prompt-icon">↗</div><div><span>Initiating context</span><strong>Autonomous threshold review</strong></div><dl><div><dt>Asset</dt><dd>{incident.asset_id}</dd></div><div><dt>Observed condition</dt><dd>{incident.condition}</dd></div><div><dt>Objective</dt><dd>Assess risk and take governed action</dd></div></dl><b>Full prompt⌄</b></summary>
-                <div className="raw-prompt"><span>Prompt sent to agent</span><p>{incident.trigger_prompt}</p></div>
-              </details>
-              <div className="incident-toolbar"><div className="view-toggle"><button className={incidentView === "conversation" ? "active" : ""} onClick={() => setIncidentView("conversation")}>Conversation</button><button className={incidentView === "timeline" ? "active" : ""} onClick={() => setIncidentView("timeline")}>Execution timeline</button></div><span>Runtime events · exactly as emitted</span></div>
+              <section className="initiating-prompt"><div className="prompt-icon">↗</div><div><strong>Initiating prompt</strong><p>{incident.trigger_prompt}</p></div></section>
               {incidentView === "conversation" ? <div className="unified-conversation" ref={conversationRef}>
                 {!conversationItems.length && <div className="timeline-empty"><i />Waiting for the first runtime event…</div>}
                 {conversationItems.map((item) => item.kind === "activity" ? <ActivityCard key={item.activity.id} activity={item.activity} busy={busy} runAction={runAction} /> : <article className={`chat-event chat-${item.turn.role}`} key={item.turn.id}><EventIcon category={item.turn.role} /><div><div className="chat-meta"><strong>{item.turn.role === "operator" ? "You" : "Reliability agent"}</strong><time>{timeLabel(item.turn.created_at)}</time></div>{item.turn.role === "agent" ? <AgentMessage content={item.turn.content} /> : <p>{item.turn.content}</p>}</div></article>)}
@@ -321,22 +326,33 @@ function App() {
   );
 }
 
-function ActivityCard({ activity, busy, runAction }: { activity: RuntimeActivity; busy: boolean; runAction: (action: RuntimeAction) => Promise<void> }) {
+function gatewayDecision(activity: RuntimeActivity) {
+  const decision = activity.details.find((detail) => detail.label.toLowerCase() === "decision")?.value;
+  return decision && ["ALLOW", "ASK", "DENY"].includes(decision) ? decision : null;
+}
+
+function ActivityCard({ activity, busy, runAction, compact = false }: { activity: RuntimeActivity; busy: boolean; runAction: (action: RuntimeAction) => Promise<void>; compact?: boolean }) {
   const category = activity.status === "waiting" ? "approval" : activity.category;
-  return <article className={`chat-event runtime-event event-${activity.status}`}><EventIcon category={category} /><div className="event-content"><div className="event-kicker"><span>{activity.category.replace("_", " ")}</span><time>{timeLabel(activity.emitted_at)}</time></div><div className="event-title"><div><strong>{activity.title}</strong>{activity.actor && <span>{activity.actor}</span>}</div><StatusPill status={activity.status} label={activity.status_label} /></div>{activity.summary && <p>{activity.summary}</p>}{activity.details.length > 0 && <dl>{activity.details.map((detail) => <div key={`${activity.id}-${detail.label}`}><dt>{detail.label}</dt><dd>{detail.value}</dd></div>)}</dl>}{activity.action && <button className="runtime-action" disabled={busy} onClick={() => void runAction(activity.action!)}>{activity.action.label}</button>}</div></article>;
+  const policy = gatewayDecision(activity);
+  const runtimeLabel = { running: "Running", complete: "Completed", waiting: "Waiting", failed: "Failed", info: "Information" }[activity.status];
+  const details = activity.details.filter((detail) => !["decision", "execution", "input tokens", "output tokens"].includes(detail.label.toLowerCase()));
+  const tokenTotal = activity.category === "model_call" ? activity.details.filter((detail) => /tokens/i.test(detail.label)).reduce((sum, detail) => sum + Number(detail.value.replaceAll(",", "")), 0) : 0;
+  return <article className={`chat-event runtime-event event-${activity.status} ${compact ? "compact-card" : ""}`}><EventIcon category={category} /><div className="event-content"><div className="event-kicker"><span>{activity.category.replace("_", " ")}</span><time>{timeLabel(activity.emitted_at)}</time></div><div className="event-title"><div><strong>{activity.title}</strong>{activity.actor && <span>{activity.actor}</span>}</div><StatusPill status={activity.status} label={runtimeLabel} /></div>{activity.summary && <p>{activity.summary}</p>}{details.length > 0 && <dl>{details.map((detail) => <div key={`${activity.id}-${detail.label}`}><dt>{detail.label}</dt><dd>{detail.value}</dd></div>)}</dl>}{policy && <section className={`gateway-policy policy-${policy.toLowerCase()}`}><strong>Unity Gateway policy applied</strong><span>{policy}</span><p>{activity.details.find((detail) => detail.label.toLowerCase() === "execution")?.value ?? (policy === "ALLOW" ? "Execution occurred" : "Execution did not occur")}</p></section>}{activity.action && <button className="runtime-action" disabled={busy} onClick={() => void runAction(activity.action!)}>{activity.action.label}</button>}<footer className="event-footer">{tokenTotal > 0 && <span>Total tokens <strong>{tokenTotal.toLocaleString()}</strong></span>}</footer></div></article>;
 }
 
 function ExecutionTimeline({ activities }: { activities: RuntimeActivity[] }) {
-  const start = activities.length ? new Date(activities[0].emitted_at).getTime() : 0;
-  const end = activities.length ? Math.max(new Date(activities[activities.length - 1].emitted_at).getTime(), start + 1000) : start + 1000;
+  const shown = activities.filter((activity) => ["model_call", "skill", "tool_call", "tool_result", "mcp"].includes(activity.category));
+  const start = shown.length ? Math.min(...shown.map((activity) => new Date(activity.started_at ?? activity.emitted_at).getTime())) : 0;
+  const end = shown.length ? Math.max(...shown.map((activity) => new Date(activity.completed_at ?? activity.emitted_at).getTime()), start + 1000) : start + 1000;
   const range = Math.max(end - start, 1000);
-  return <div className="execution-view"><div className="execution-scale"><span>Start</span><span>Agent execution</span><span>Latest event</span></div>{activities.length === 0 ? <div className="timeline-empty">No runtime activity yet.</div> : activities.map((activity, index) => {
-    const current = new Date(activity.emitted_at).getTime();
-    const next = activities[index + 1] ? new Date(activities[index + 1].emitted_at).getTime() : current + Math.max(range * 0.08, 500);
-    const left = Math.min(82, ((current - start) / range) * 82);
-    const width = activity.status === "waiting" ? 12 : Math.max(7, Math.min(28, ((next - current) / range) * 82));
-    return <div className="execution-row" key={activity.id}><div className="execution-label"><EventIcon category={activity.status === "waiting" ? "approval" : activity.category} /><div><strong>{activity.title}</strong><span>{activity.actor ?? activity.category}</span></div></div><div className="execution-track"><span className={`execution-bar bar-${activity.status}`} style={{ left: `${left}%`, width: `${width}%` }}><i>{activity.status === "waiting" ? "Awaiting human" : activity.status_label}</i></span></div><time>{timeLabel(activity.emitted_at)}</time></div>;
-  })}</div>;
+  const lanes = [{ label: "LLM calls", categories: ["model_call"] }, { label: "Skill reads", categories: ["skill"] }, { label: "Tool calls", categories: ["tool_call", "tool_result", "mcp"] }];
+  return <div className="execution-view"><div className="execution-scale"><span>Start</span><span>Agent execution</span><span>Latest event</span></div>{shown.length === 0 ? <div className="timeline-empty">No runtime activity yet.</div> : lanes.map((lane) => <section className="gantt-lane" key={lane.label}><h3>{lane.label}</h3><div className="execution-track">{shown.filter((activity) => lane.categories.includes(activity.category)).map((activity) => {
+    const activityStart = new Date(activity.started_at ?? activity.emitted_at).getTime();
+    const activityEnd = new Date(activity.completed_at ?? activity.emitted_at).getTime();
+    const left = Math.min(88, ((activityStart - start) / range) * 88);
+    const width = activity.status === "waiting" ? 3 : Math.max(2, Math.min(25, ((Math.max(activityEnd, activityStart + 250) - activityStart) / range) * 88));
+    return <span className={`execution-bar category-${activity.category} bar-${activity.status}`} key={activity.id} style={{ left: `${left}%`, width: `${width}%` }} tabIndex={0}><i>{activity.title}</i><span className="gantt-popover"><ActivityCard activity={activity} busy={false} runAction={async () => undefined} compact /></span></span>;
+  })}</div></section>)}</div>;
 }
 
 export default App;
