@@ -1,9 +1,44 @@
+from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+
+import pytest
+
+from backend.gateway import GatewayAsk, GatewayElicitation
 from backend.production_runtime import (
+    ProductionCommandCenterRuntime,
     _canonical_decision_rationale,
     _canonical_terminal_response,
     _valid_decision_rationale,
     _valid_terminal_response,
 )
+
+
+@pytest.mark.asyncio
+async def test_gateway_ask_waits_for_explicit_approval_replay() -> None:
+    runtime = ProductionCommandCenterRuntime.__new__(ProductionCommandCenterRuntime)
+    runtime.repository = SimpleNamespace(
+        append_activity=AsyncMock(),
+        set_waiting=AsyncMock(),
+    )
+    runtime._spawn = Mock()
+    ask = GatewayAsk(
+        '{"method":"tools/call"}',
+        GatewayElicitation(
+            elicitation_id="approval-1",
+            url="https://workspace.example/approval-1",
+            message="Approval required",
+        ),
+    )
+
+    await runtime._pause_for_gateway(
+        "incident-1", "submit_work_order", ask, started_at=datetime.now(UTC)
+    )
+
+    activity = runtime.repository.append_activity.await_args.args[1]
+    assert activity.action.href == "https://workspace.example/approval-1"
+    assert activity.action.endpoint == "/api/incidents/incident-1/approve"
+    runtime._spawn.assert_not_called()
 
 
 def test_tool_selection_protocol_accepts_only_decision_rationale() -> None:

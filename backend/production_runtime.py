@@ -502,6 +502,7 @@ class ProductionCommandCenterRuntime:
                     label="Review approval request",
                     kind="link",
                     href=ask.elicitation.url,
+                    endpoint=f"/api/incidents/{incident_id}/approve",
                 ),
                 started_at=started_at,
                 completed_at=None,
@@ -509,19 +510,12 @@ class ProductionCommandCenterRuntime:
             tool_call=True,
         )
         await self.repository.set_waiting(incident_id, pending)
-        self._spawn(self._resume_when_approved(incident_id, pending))
 
     def _model_cost(self, input_tokens: int, output_tokens: int) -> float:
         return (
             input_tokens * self.settings.model_input_cost_per_million
             + output_tokens * self.settings.model_output_cost_per_million
         ) / 1_000_000
-
-    async def _resume_when_approved(self, incident_id: str, pending: PendingApproval) -> None:
-        while True:
-            await asyncio.sleep(self.settings.approval_poll_seconds)
-            if await self._retry_pending(incident_id, pending):
-                return
 
     async def _retry_pending(self, incident_id: str, pending: PendingApproval) -> bool:
         incident = await self.repository.incident(incident_id)
