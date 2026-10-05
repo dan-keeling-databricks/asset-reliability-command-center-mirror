@@ -1,0 +1,204 @@
+bundle:
+  name: asset-reliability-command-center
+  databricks_cli_version: ">=0.250.0"
+  deployment:
+    lock:
+      enabled: true
+
+variables:
+  catalog:
+    description: Unity Catalog catalog hosting the project schema.
+    default: classic_stable_realtime_demos_catalog
+  schema:
+    description: Unity Catalog schema for checkpoints and governed assets.
+    default: asset_reliability_command_center
+  volume:
+    description: Managed volume for streaming checkpoints.
+    default: runtime
+  warehouse_id:
+    description: Serverless SQL warehouse used for setup and policy functions.
+    default: 2162b643ec0f802a
+  kafka_bootstrap:
+    default: 63.186.81.193:443
+  kafka_topic:
+    default: asset-reliability-pump-telemetry
+  lakebase_project_id:
+    default: asset-reliability-command-center
+  lakebase_endpoint_path:
+    description: Full Lakebase endpoint resource path used by the Databricks SDK.
+    default: projects/asset-reliability-command-center/branches/production/endpoints/primary
+  lakebase_schema:
+    default: asset_reliability
+  primary_model:
+    default: databricks-claude-sonnet-4-5
+  fast_model:
+    default: databricks-gpt-5-1
+
+sync:
+  include:
+    - backend/**
+    - frontend/dist/**
+    - skills/**
+    - src/**
+    - sql/**
+    - app.yaml
+    - pyproject.toml
+    - uv.lock
+    - requirements.txt
+  exclude:
+    - .artifacts/**
+    - .venv/**
+    - "**/__pycache__/**"
+    - "**/*.pyc"
+    - frontend/node_modules/**
+    - "frontend/*.tsbuildinfo"
+
+resources:
+  volumes:
+    runtime_volume:
+      name: ${var.volume}
+      catalog_name: ${var.catalog}
+      schema_name: ${var.schema}
+      volume_type: MANAGED
+      comment: Streaming checkpoints and runtime artifacts for Asset Reliability
+
+  postgres_projects:
+    asset_reliability_postgres:
+      project_id: ${var.lakebase_project_id}
+      display_name: Asset Reliability Command Center
+      pg_version: 17
+      default_endpoint_settings:
+        autoscaling_limit_min_cu: 0.5
+        autoscaling_limit_max_cu: 1
+        no_suspension: true
+      custom_tags:
+        - key: demo
+          value: asset-reliability-command-center
+        - key: environment
+          value: world-tour-demo
+
+  jobs:
+    setup_unity_governance:
+      name: Asset Reliability — create Unity Gateway policy function
+      tasks:
+        - task_key: create_policy_function
+          sql_task:
+            file:
+              path: ./sql/setup_demo.sql
+            warehouse_id: ${var.warehouse_id}
+
+    telemetry_producer:
+      name: Asset Reliability — continuous pump telemetry producer
+      description: Polls Lakebase scenario commands and publishes eight-pump telemetry to Kafka.
+      continuous:
+        pause_status: UNPAUSED
+      max_concurrent_runs: 1
+      job_clusters:
+        - job_cluster_key: producer_cluster
+          new_cluster:
+            spark_version: 17.3.x-scala2.13
+            node_type_id: i3.xlarge
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            spark_conf:
+              spark.master: local[*, 4]
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+              Workload: asset-reliability-producer
+            aws_attributes:
+              availability: ON_DEMAND
+      tasks:
+        - task_key: produce_telemetry
+          job_cluster_key: producer_cluster
+          notebook_task:
+            notebook_path: ./src/producer/pump_telemetry_producer.py
+            base_parameters:
+              kafka_bootstrap: ${var.kafka_bootstrap}
+              kafka_topic: ${var.kafka_topic}
+              lakebase_endpoint: ${var.lakebase_endpoint_path}
+              lakebase_database: databricks_postgres
+              lakebase_schema: ${var.lakebase_schema}
+              rate_hz: "2"
+              run_seconds: "0"
+          libraries:
+            - pypi:
+                package: databricks-sdk==0.142.0
+            - pypi:
+                package: kafka-python-ng==2.2.3
+            - pypi:
+                package: psycopg[binary]==3.2.10
+
+    telemetry_rtm:
+      name: Asset Reliability — Kafka to Lakebase RTM
+      description: Dedicated standalone Spark Real-Time Mode ingestion into Lakebase.
+      continuous:
+        pause_status: UNPAUSED
+      max_concurrent_runs: 1
+      job_clusters:
+        - job_cluster_key: rtm_cluster
+          new_cluster:
+            spark_version: 19.x-scala2.13
+            node_type_id: i3.xlarge
+            num_workers: 1
+            data_security_mode: SINGLE_USER
+            enable_elastic_disk: true
+            spark_conf:
+              spark.databricks.streaming.realTimeMode.enabled: "true"
+              spark.sql.shuffle.partitions: "1"
+            custom_tags:
+              Workload: asset-reliability-rtm
+            aws_attributes:
+              availability: ON_DEMAND
+      tasks:
+        - task_key: ingest_pump_telemetry
+          job_cluster_key: rtm_cluster
+          notebook_task:
+            notebook_path: ./src/streaming/kafka_to_lakebase_rtm.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              volume: ${var.volume}
+              kafka_bootstrap: ${var.kafka_bootstrap}
+              kafka_topic: ${var.kafka_topic}
+              lakebase_endpoint: ${var.lakebase_endpoint_path}
+              lakebase_database: databricks_postgres
+              lakebase_table: ${var.lakebase_schema}.telemetry_events
+              starting_offsets: latest
+              trigger_interval: 5 minutes
+              diagnostic_seconds: "0"
+
+  apps:
+    command_center:
+      name: asset-reliability-center
+      description: Autonomous and governed asset reliability command center
+      source_code_path: .
+      forward_user_access_token: true
+      user_api_scopes:
+        - ai-gateway
+      resources:
+        - name: lakebase
+          postgres:
+            branch: projects/${resources.postgres_projects.asset_reliability_postgres.project_id}/branches/production
+            database: projects/${resources.postgres_projects.asset_reliability_postgres.project_id}/branches/production/databases/databricks-postgres
+            permission: CAN_CONNECT_AND_CREATE
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+        - name: primary-model
+          serving_endpoint:
+            name: ${var.primary_model}
+            permission: CAN_QUERY
+        - name: fast-model
+          serving_endpoint:
+            name: ${var.fast_model}
+            permission: CAN_QUERY
+
+targets:
+  dev:
+    default: true
+    mode: development
+    workspace:
+      host: https://fevm-classic-stable-realtime-demos.cloud.databricks.com
+      profile: fe_vm_rtm

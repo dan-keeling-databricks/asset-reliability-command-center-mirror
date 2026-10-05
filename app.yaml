@@ -1,0 +1,34 @@
+command:
+  - uvicorn
+  - backend.main:app
+  - --host
+  - 0.0.0.0
+  - --port
+  - "8000"
+env:
+  - name: APP_ADAPTER
+    value: lakebase
+  - name: LAKEBASE_ENDPOINT
+    valueFrom: lakebase
+  - name: PRIMARY_MODEL_ENDPOINT
+    valueFrom: primary-model
+  - name: FAST_MODEL_ENDPOINT
+    valueFrom: fast-model
+  - name: GOVERNED_MCP_ENDPOINT
+    value: https://fevm-classic-stable-realtime-demos.cloud.databricks.com/ai-gateway/mcp-services/classic_stable_realtime_demos_catalog.asset_reliability_command_center.asset_reliability_mcp
+  - name: GOVERNED_SKILL_ENDPOINT
+    value: https://fevm-classic-stable-realtime-demos.cloud.databricks.com/ai-gateway/skills/?schema=classic_stable_realtime_demos_catalog.asset_reliability_command_center
+  - name: GOVERNED_SKILL_TOOL
+    value: skill_classic_stable_realtime_demos_catalog.asset_reliability_command_center.asset-reliability-response
+  - name: LAKEBASE_SCHEMA
+    value: asset_reliability
+  - name: LAKEBASE_JOB_PRINCIPAL
+    value: dan.keeling@databricks.com
+  - name: SSE_COALESCE_SECONDS
+    value: "0.05"
+  - name: TELEMETRY_RETENTION_SECONDS
+    value: "86400"
+  - name: TELEMETRY_RETENTION_INTERVAL_SECONDS
+    value: "300"
+  - name: TELEMETRY_RETENTION_BATCH_SIZE
+    value: "1000"

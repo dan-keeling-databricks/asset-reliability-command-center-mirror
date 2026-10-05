@@ -1,0 +1,15 @@
+.DS_Store
+.artifacts/
+.databricks/
+.data/
+.env
+.pytest_cache/
+.ruff_cache/
+.venv/
+__pycache__/
+*.py[cod]
+*.tsbuildinfo
+frontend/dist/
+frontend/node_modules/
+frontend/vite.config.d.ts
+frontend/vite.config.js
