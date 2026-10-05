@@ -149,9 +149,10 @@ def test_approval_and_follow_up_complete_incident() -> None:
         assert submit["status_label"] == "APPROVED · ALLOW"
         assert any(activity["category"] == "tool_result" for activity in incident["activities"])
         conclusions = [
-            turn["content"]
-            for turn in incident["conversation"]
-            if turn["role"] == "agent" and turn["content"].startswith("- **Finding:**")
+            activity["summary"]
+            for activity in incident["activities"]
+            if activity["category"] == "model_call"
+            and activity["summary"].startswith("- **Finding:**")
         ]
         assert len(conclusions) == 1
         assert conclusions[0].splitlines() == [
@@ -177,18 +178,14 @@ def test_approval_and_follow_up_complete_incident() -> None:
         )
         assert follow_up.status_code == 202
         incident = client.get(f"/api/incidents/{incident_id}").json()
-        assert [turn["role"] for turn in incident["conversation"][-2:]] == [
-            "operator",
-            "agent",
-        ]
-        assert "WO-10482" in incident["conversation"][-1]["content"]
+        assert [turn["role"] for turn in incident["conversation"]] == ["operator"]
         follow_up_activity = next(
             activity
             for activity in reversed(incident["activities"])
             if activity["category"] == "model_call"
         )
         assert follow_up_activity["title"] == "Model execution"
-        assert follow_up_activity["summary"] == incident["conversation"][-1]["content"]
+        assert "WO-10482" in follow_up_activity["summary"]
         assert (
             incident["totals"]["input_tokens"] + incident["totals"]["output_tokens"]
             > tokens_before_follow_up
