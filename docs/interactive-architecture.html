@@ -546,7 +546,7 @@
                   <rect x="211" y="66" width="106" height="20" rx="6" fill="#eee9f8"></rect><text class="node-tag" x="223" y="80" fill="#7251b5">MCP SERVER</text>
                 </g>
 
-                <g class="node" tabindex="0" role="button" aria-label="Lakebase. Operational source of truth. Live state, incidents, audit, work orders." data-node="lakebase" data-tags="application telemetry agent" transform="translate(795 69)">
+                <g class="node" tabindex="0" role="button" aria-label="Lakebase. Operational source of truth. Live state · incidents · audit · work orders." data-node="lakebase" data-tags="application telemetry agent" transform="translate(795 69)">
                   <rect class="node-box" width="198" height="94" rx="15"></rect>
                   <ellipse class="node-icon" cx="31" cy="24" rx="16" ry="8" fill="#1967d2"></ellipse><path d="M15 24v28c0 5 7 8 16 8s16-3 16-8V24" fill="#dbe8fb" stroke="#1967d2" stroke-width="1.4"></path><path d="M15 38c0 5 7 8 16 8s16-3 16-8" fill="none" stroke="#1967d2"></path>
                   <text class="node-title" x="58" y="29">Lakebase</text><text class="node-copy" x="58" y="47">Operational source of truth</text><text class="node-copy" x="16" y="75">Live state · incidents · audit · work orders</text>
@@ -564,7 +564,7 @@
                   <text class="node-title" x="16" y="57">Kafka topic</text><text class="node-copy" x="16" y="71">Telemetry event bus</text>
                 </g>
 
-                <g class="node" tabindex="0" role="button" aria-label="Spark Real-Time Mode, DBR 19. Decode, validate, sink with Structured Streaming." data-node="rtm" data-tags="telemetry" transform="translate(493 246)">
+                <g class="node" tabindex="0" role="button" aria-label="Spark RTM. DBR 19. Decode · validate · sink. STRUCTURED STREAMING." data-node="rtm" data-tags="telemetry" transform="translate(493 246)">
                   <rect class="node-box" width="133" height="96" rx="14"></rect>
                   <path class="node-icon" d="M17 25h25l-9 12h14L20 60l10-16H17z" fill="#ff8a4c"></path>
                   <text class="node-title" x="56" y="29">Spark RTM</text><text class="node-copy" x="56" y="45">DBR 19</text><text class="node-copy" x="16" y="76">Decode · validate · sink</text><text class="node-tag" x="16" y="89" fill="#c82d1c">STRUCTURED STREAMING</text>
@@ -576,10 +576,10 @@
                   <text class="node-title" x="58" y="31">UC Skill</text><text class="node-copy" x="58" y="47">Response procedure</text><text class="node-copy" x="16" y="77">Evidence rules + action</text><text class="node-tag" x="16" y="91" fill="#7251b5">RUNTIME DISCOVERY</text>
                 </g>
 
-                <g class="node" tabindex="0" role="button" aria-label="Model endpoints. Databricks hosted. GPT-5.1 to Sonnet 4.5 evidence-based routing." data-node="models" data-tags="agent" transform="translate(596 443)">
+                <g class="node" tabindex="0" role="button" aria-label="Model endpoint. Databricks hosted. Claude Sonnet 4.5. ONE MODEL · ALL TURNS." data-node="models" data-tags="agent" transform="translate(596 443)">
                   <rect class="node-box" width="170" height="98" rx="14"></rect>
                   <circle class="node-icon" cx="28" cy="28" r="15" fill="#dff0f1"></circle><path d="M20 28h16M28 20v16M22 22l12 12M34 22L22 34" stroke="#007f86" stroke-width="1.2"></path>
-                  <text class="node-title" x="52" y="27">Model endpoints</text><text class="node-copy" x="52" y="43">Databricks hosted</text><text class="node-copy" x="16" y="74">GPT-5.1 → Sonnet 4.5</text><text class="node-tag" x="16" y="89" fill="#007f86">EVIDENCE-BASED ROUTING</text>
+                  <text class="node-title" x="52" y="27">Model endpoint</text><text class="node-copy" x="52" y="43">Databricks hosted</text><text class="node-copy" x="16" y="74">Claude Sonnet 4.5</text><text class="node-tag" x="16" y="89" fill="#007f86">ONE MODEL · ALL TURNS</text>
                 </g>
 
                 <g class="node" tabindex="0" role="button" aria-label="Unity Gateway MCP service." data-node="gateway" data-tags="agent governance" transform="translate(805 420)">
@@ -647,11 +647,11 @@
           <article class="feature-card"><div class="feature-num">03 / OUTCOME</div><h3>Evidence decides the branch</h3><p>Self-resolving transients close with no action. Persistent, correlated degradation drives preparation and a governed work-order attempt.</p><ul><li>Decision rationale is prospective—before calls execute</li><li>Terminal output uses Finding, Evidence, Risk, Action</li><li>ASK creates a pause, not a premature conclusion</li></ul></article>
         </div>
         <div class="routing-card">
-          <div class="routing-copy"><h3>Reasoning is code-defined; tool choice is model-driven.</h3><p>The current <code>main</code> runtime begins with GPT-5.1 for tool selection and routes subsequent reasoning to Claude Sonnet 4.5 when the governed risk tool establishes high risk. Model endpoint names appear in the UI only after a real model event.</p></div>
-          <div class="routing-flow" aria-label="Current model routing">
-            <div class="route-row"><div class="route-node">Autonomous alert</div><div class="route-arrow">→</div><div><div class="route-node">GPT-5.1</div><div class="route-caption">Initial evidence and tool selection</div></div></div>
-            <div class="route-row"><div class="route-node">Low risk</div><div class="route-arrow">→</div><div><div class="route-node">No-action conclusion</div><div class="route-caption">Normal transient recorded</div></div></div>
-            <div class="route-row"><div class="route-node">High risk</div><div class="route-arrow">→</div><div><div class="route-node">Claude Sonnet 4.5</div><div class="route-caption">Action continuation and final response</div></div></div>
+          <div class="routing-copy"><h3>Reasoning is code-defined; tool choice is model-driven.</h3><p>The approved runtime uses one configured Databricks-hosted model—Claude Sonnet 4.5 by default—for every reasoning, tool-selection, continuation, final-response, and follow-up turn. That gives later model benchmarking one complete workflow and one comparable token/cost total.</p></div>
+          <div class="routing-flow" aria-label="Single-model runtime">
+            <div class="route-row"><div class="route-node">Autonomous alert</div><div class="route-arrow">→</div><div><div class="route-node">Claude Sonnet 4.5</div><div class="route-caption">Initial evidence and tool selection</div></div></div>
+            <div class="route-row"><div class="route-node">Risk result</div><div class="route-arrow">→</div><div><div class="route-node">Same model</div><div class="route-caption">No-action or governed action continuation</div></div></div>
+            <div class="route-row"><div class="route-node">Approval / follow-up</div><div class="route-arrow">→</div><div><div class="route-node">Same model</div><div class="route-caption">Final response and operator questions</div></div></div>
           </div>
         </div>
       </div>
@@ -749,7 +749,7 @@ END</code></pre>
         </div>
         <div class="identity-grid">
           <article class="identity-card"><div class="identity-icon">U</div><h3>Operator / OBO identity</h3><p>The App receives a forwarded user token with the <code>ai-gateway</code> scope. It uses that identity for Skill and MCP Gateway calls.</p><ul class="access-list"><li><span>Databricks App</span><code>CAN_USE</code></li><li><span>Catalog</span><code>USE_CATALOG</code></li><li><span>Schema</span><code>USE_SCHEMA</code></li><li><span>UC Skill</span><code>READ_VOLUME</code></li><li><span>MCP service</span><code>EXECUTE</code></li></ul></article>
-          <article class="identity-card"><div class="identity-icon">A</div><h3>App service principal</h3><p>Runs FastAPI, the evaluator, the code-defined agent, and the source MCP server. App resource bindings define its infrastructure access.</p><ul class="access-list"><li><span>Lakebase branch</span><code>CAN_CONNECT_AND_CREATE</code></li><li><span>SQL warehouse</span><code>CAN_USE</code></li><li><span>Model endpoints</span><code>CAN_QUERY</code></li><li><span>Source App boundary</span><code>CAN_USE</code></li><li><span>Kafka network</span><code>NONE</code></li></ul></article>
+          <article class="identity-card"><div class="identity-icon">A</div><h3>App service principal</h3><p>Runs FastAPI, the evaluator, the code-defined agent, and the source MCP server. App resource bindings define its infrastructure access.</p><ul class="access-list"><li><span>Lakebase branch</span><code>CAN_CONNECT_AND_CREATE</code></li><li><span>SQL warehouse</span><code>CAN_USE</code></li><li><span>Model endpoint</span><code>CAN_QUERY</code></li><li><span>Source App boundary</span><code>CAN_USE</code></li><li><span>Kafka network</span><code>NONE</code></li></ul></article>
           <article class="identity-card"><div class="identity-icon">J</div><h3>Isolated job compute</h3><p>Two continuous classic-compute jobs separate signal production from ingestion and from the interactive App.</p><ul class="access-list"><li><span>Producer → Kafka</span><code>PUBLISH</code></li><li><span>Producer → commands</span><code>CLAIM / ACK</code></li><li><span>RTM → Kafka</span><code>READ</code></li><li><span>RTM → Lakebase</span><code>STREAMING SINK</code></li><li><span>RTM checkpoint</span><code>UC VOLUME</code></li></ul></article>
         </div>
         <div class="boundary"><strong>Token boundary</strong><p>The browser’s forwarded token is cached only in App process memory and used for Gateway calls. Lakebase stores the identity subject for audit, never the bearer token. A restart during pending approval therefore requires a live user session before replay can continue.</p></div>
@@ -771,7 +771,7 @@ END</code></pre>
   </main>
 
   <footer>
-    <div class="container footer-inner"><span><strong>Asset Reliability Command Center</strong> · Interactive architecture</span><span>Source-aligned with repository <code>main</code> at creation · October 2026</span></div>
+    <div class="container footer-inner"><span><strong>Asset Reliability Command Center</strong> · Interactive architecture</span><span>Approved single-model runtime design · October 2026</span></div>
   </footer>
 
   <script>
@@ -783,7 +783,7 @@ END</code></pre>
       kafka: { overline: 'Event bus', title: 'Dedicated Kafka telemetry topic', body: 'Kafka decouples device-like signal production from Spark ingestion. The Databricks App has no direct broker network dependency.', facts: [['Topic', 'asset-reliability-pump-telemetry'], ['Producer', 'Classic compute'], ['Consumer', 'Spark Structured Streaming RTM']], badge: 'Broker connectivity stays outside the App.' },
       rtm: { overline: 'Ingestion', title: 'Spark Structured Streaming Real-Time Mode', body: 'A standalone DBR 19 query decodes and validates Kafka envelopes, then writes directly to the native PostgreSQL/Lakebase streaming sink.', facts: [['Output mode', 'update'], ['Checkpoint', 'Unity Catalog volume'], ['Event safety', 'Deterministic idempotent keys'], ['Responsibility', 'Ingestion only—no alert logic']], badge: 'Continuous job 17156207332698' },
       skill: { overline: 'Governed procedure', title: 'Unity Catalog Skill', body: 'The response procedure tells the agent how to distinguish a normal transient from credible degradation and when to pursue bearing replacement. It is loaded at runtime, not copied into the UI.', facts: [['Name', 'asset-reliability-response'], ['User privilege', 'READ_VOLUME'], ['Parent access', 'USE_CATALOG + USE_SCHEMA'], ['Behavior', 'No predetermined tool count']], badge: 'Governed content can change independently of UI code.' },
-      models: { overline: 'Reasoning', title: 'Databricks-hosted model endpoints', body: 'The App service principal calls bound model endpoints. The current main runtime starts on GPT-5.1 and routes high-risk continuation and final response generation to Claude Sonnet 4.5.', facts: [['Initial', 'databricks-gpt-5-1'], ['High risk', 'databricks-claude-sonnet-4-5'], ['Binding', 'CAN_QUERY'], ['Model access', 'No direct Lakebase or MCP credential']], badge: 'Tokens and estimated cost are accumulated per agent run.' },
+      models: { overline: 'Reasoning', title: 'One Databricks-hosted model endpoint', body: 'The App service principal calls one bound model endpoint for the complete agent workflow. Claude Sonnet 4.5 is the default for reasoning, tool choice, action continuation, final response, and follow-up.', facts: [['Configured model', 'databricks-claude-sonnet-4-5'], ['Workflow scope', 'Every model turn'], ['Binding', 'CAN_QUERY'], ['Model access', 'No direct Lakebase or MCP credential']], badge: 'One workflow produces one comparable token and cost total.' },
       gateway: { overline: 'Governed execution', title: 'Unity Gateway MCP service', body: 'The agent lists and calls tools through Gateway using the captured user identity. Gateway applies service policy before forwarding the request to the App-hosted MCP source.', facts: [['User privilege', 'EXECUTE'], ['Tool discovery', 'Runtime tools/list'], ['Policy', 'Custom request-time policy'], ['Sensitive decision', 'ASK on submit_work_order']], badge: 'MCP service: asset_reliability_mcp' },
       approval: { overline: 'Human in the loop', title: 'Native approval handoff', body: 'Unity Gateway creates the real approval request and URL. The App displays the handoff and pauses. It does not pretend the operator changed roles or fabricate approval.', facts: [['Before approval', 'ASK · Not executed'], ['Authority', 'Unity Gateway'], ['After approval', 'Exact request replay'], ['Repeated ASK', 'Existing waiting state remains']], badge: 'The demo visibly stops at the business boundary.' },
       mcp: { overline: 'Business capabilities', title: 'App-hosted MCP source', body: 'A deliberately narrow MCP server exposes four business functions backed by the command-center repository. Gateway’s OAuth HTTP connection authenticates to this App boundary as the App service principal.', facts: [['Read', 'get_asset_telemetry'], ['Analyze', 'assess_failure_risk'], ['Prepare', 'prepare_work_order'], ['Write', 'submit_work_order']], badge: 'The model can choose only what Gateway exposes.' }
