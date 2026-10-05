@@ -10,10 +10,8 @@ env:
     value: lakebase
   - name: LAKEBASE_ENDPOINT
     valueFrom: lakebase
-  - name: PRIMARY_MODEL_ENDPOINT
-    valueFrom: primary-model
-  - name: FAST_MODEL_ENDPOINT
-    valueFrom: fast-model
+  - name: MODEL_ENDPOINT
+    valueFrom: model
   - name: GOVERNED_MCP_ENDPOINT
     value: https://fevm-classic-stable-realtime-demos.cloud.databricks.com/ai-gateway/mcp-services/classic_stable_realtime_demos_catalog.asset_reliability_command_center.asset_reliability_mcp
   - name: GOVERNED_SKILL_ENDPOINT

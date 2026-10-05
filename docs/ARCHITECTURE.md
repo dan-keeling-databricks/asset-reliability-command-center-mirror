@@ -26,8 +26,7 @@ flowchart LR
     APP -->|skill discovery| SKILL[Unity Catalog Skill]
     APP -->|MCP calls with OBO token| GW[Unity Gateway]
     GW -->|governed tools| APP
-    APP --> FAST[Databricks GPT-5.1]
-    APP --> DEEP[Claude Sonnet 4.5]
+    APP --> MODEL[Databricks-hosted model\nClaude Sonnet 4.5 by default]
     GW -->|ASK| APPROVAL[Native approval UI]
 ```
 
@@ -41,7 +40,7 @@ flowchart LR
 | RTM ingestion | Continuous job `17156207332698`, dedicated DBR 19 classic compute | Kafka decoding and native Lakebase streaming sink |
 | Checkpoint storage | `classic_stable_realtime_demos_catalog.asset_reliability_command_center.runtime` | RTM checkpoint and runtime artifacts |
 | Governance | UC Skill, HTTP MCP connection, Unity Gateway MCP service, custom policy function | Runtime procedure discovery, tool exposure, `ASK` on `submit_work_order` |
-| Models | `databricks-gpt-5-1`, `databricks-claude-sonnet-4-5` | Fast action selection and high-risk reasoning |
+| Model | `databricks-claude-sonnet-4-5` by default | All reasoning, tool selection, and follow-up responses |
 
 The Unity Catalog schema is
 `classic_stable_realtime_demos_catalog.asset_reliability_command_center`. Lakebase uses the
@@ -75,8 +74,9 @@ Lakeflow Declarative Pipelines Real-Time Mode. RTM ingestion owns no alert or ag
    incident identifier, and maintenance objective. The presenter does not type it.
 3. The runtime loads the governed UC Skill and discovers the current MCP tool surface. Only
    then are skill, server, model, and tool events persisted for the UI.
-4. GPT-5.1 selects initial evidence actions. A high-risk result routes subsequent reasoning
-   to Sonnet 4.5. The runtime imposes no tool-call cap or fixed visualization stages.
+4. The configured Databricks-hosted model performs every reasoning and tool-selection turn,
+   including continuation after a high-risk result. The runtime imposes no tool-call cap or
+   fixed visualization stages.
 5. Business calls traverse Unity Gateway with the captured user identity. Current tools are
    `get_asset_telemetry`, `assess_failure_risk`, `prepare_work_order`, and
    `submit_work_order`.

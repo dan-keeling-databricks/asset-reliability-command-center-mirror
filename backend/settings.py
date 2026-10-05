@@ -22,8 +22,7 @@ class Settings(BaseSettings):
     databricks_host: str | None = None
     local_databricks_auth: bool = False
     databricks_config_profile: str | None = None
-    primary_model_endpoint: str = "databricks-claude-sonnet-4-5"
-    fast_model_endpoint: str = "databricks-gpt-5-1"
+    model_endpoint: str = "databricks-claude-sonnet-4-5"
     governed_mcp_endpoint: str | None = None
     governed_skill_endpoint: str | None = None
     governed_skill_tool: str | None = None

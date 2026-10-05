@@ -31,7 +31,7 @@ To run the same frontend and FastAPI service against the shared deployed backend
 ```
 
 Live mode uses the authenticated `fe_vm_rtm` Databricks CLI profile by default. Override it
-with `DATABRICKS_CONFIG_PROFILE`. It connects to the production Lakebase, model endpoints,
+with `DATABRICKS_CONFIG_PROFILE`. It connects to the production Lakebase, model endpoint,
 UC Skill, and Unity Gateway while retaining Vite hot reload. The UI displays a persistent
 `LIVE BACKEND` banner because scenario controls and approvals mutate the shared demo state.
 It deliberately skips schema migration because the deployed App service principal owns the

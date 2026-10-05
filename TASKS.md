@@ -16,12 +16,12 @@ existing `classic_stable_realtime_demos_catalog` and the dedicated
 | RTM | Persist checkpoints in the project Unity Catalog volume and use idempotent event keys | Complete |
 | App data | Use Lakebase pooling, notification-driven SSE, and independent one-second alert evaluation | Complete |
 | Agent | Host the code-defined agent in the Databricks App with runtime skill/MCP discovery | Complete |
-| Agent | Run concurrent incident evaluations and route GPT-5.1 to Sonnet 4.5 for high-risk reasoning | Complete |
+| Agent | Run concurrent incident evaluations through one configurable Sonnet 4.5 endpoint | Complete |
 | Governance | Expose four business tools through Unity Gateway MCP | Complete |
 | Governance | Attach native `ASK` policy to `submit_work_order` and preserve the real approval handoff | Complete |
 | UI | Build the live fleet command center, agent-active cues, alerts, and invocation history | Complete |
 | UI | Build the two-pane incident overlay, follow-up input, dynamic activity timeline, and footer totals | Complete |
-| Quality | Pass Ruff, six pytest tests, TypeScript checking, and the Vite production build | Complete |
+| Quality | Pass Ruff, the full pytest suite, TypeScript checking, and the Vite production build | Complete |
 | Quality | Validate desktop and 1280×800 remote layouts with no console or network errors | Complete |
 | Quality | Validate concurrent normal-transient reviews and retained no-action history | Complete |
 | Quality | Validate P-204 high-risk assessment, native `ASK`, approval replay, and scheduled work order | Complete |

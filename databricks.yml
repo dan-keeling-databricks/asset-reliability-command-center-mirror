@@ -29,10 +29,8 @@ variables:
     default: projects/asset-reliability-command-center/branches/production/endpoints/primary
   lakebase_schema:
     default: asset_reliability
-  primary_model:
+  model:
     default: databricks-claude-sonnet-4-5
-  fast_model:
-    default: databricks-gpt-5-1
 
 sync:
   include:
@@ -186,13 +184,9 @@ resources:
           sql_warehouse:
             id: ${var.warehouse_id}
             permission: CAN_USE
-        - name: primary-model
+        - name: model
           serving_endpoint:
-            name: ${var.primary_model}
-            permission: CAN_QUERY
-        - name: fast-model
-          serving_endpoint:
-            name: ${var.fast_model}
+            name: ${var.model}
             permission: CAN_QUERY
 
 targets:

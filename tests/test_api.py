@@ -10,12 +10,14 @@ from backend.settings import Settings
 
 
 @contextmanager
-def local_client():
+def local_client(model_endpoint: str | None = None):
+    model_settings = {"model_endpoint": model_endpoint} if model_endpoint else {}
     settings = Settings(
         app_adapter="local",
         telemetry_interval_seconds=0.05,
         alert_evaluator_interval_seconds=0.02,
         local_event_step_seconds=0.01,
+        **model_settings,
     )
     repository = LocalCommandCenterRepository(initial_snapshot())
     runtime = LocalCommandCenterRuntime(repository, settings)
@@ -120,7 +122,7 @@ def test_trigger_runs_generic_activity_stream_and_waits_for_approval() -> None:
 
 
 def test_approval_and_follow_up_complete_incident() -> None:
-    with local_client() as client:
+    with local_client(model_endpoint="databricks-test-single-model") as client:
         response = client.post("/api/scenario/trigger-p204").json()
         assert response["incident_id"] is None
         dashboard = wait_for(
@@ -156,6 +158,11 @@ def test_approval_and_follow_up_complete_incident() -> None:
             "agent",
         ]
         assert "WO-10482" in incident["conversation"][-1]["content"]
+        assert {
+            activity["actor"]
+            for activity in incident["activities"]
+            if activity["category"] == "model_call"
+        } == {"databricks-test-single-model"}
 
 
 def test_restart_is_idempotent_and_clears_scenario_history() -> None:

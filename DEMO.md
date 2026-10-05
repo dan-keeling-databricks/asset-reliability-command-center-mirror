@@ -94,10 +94,11 @@ the pump, threshold rule, observed value, timestamp, and scenario context. The r
 available skills and governed MCP bindings, lets the agent choose its workflow, and persists
 each observed activity event. A background task per incident permits concurrent evaluations.
 
-Two Databricks-hosted models are routed by task purpose. Model and routing metadata are shown
-only after a call occurs. Business tool calls pass through the real Unity Gateway using the
-approved user identity model. If policy returns `ASK`, the run becomes waiting-for-approval
-and resumes only after the native Gateway approval flow authorizes the call.
+A single configurable Databricks-hosted model performs every reasoning, tool-selection, and
+follow-up turn; Claude Sonnet 4.5 is the default. Model metadata is shown only after a call
+occurs. Business tool calls pass through the real Unity Gateway using the approved user
+identity model. If policy returns `ASK`, the run becomes waiting-for-approval and resumes
+only after the native Gateway approval flow authorizes the call.
 
 ## Revised build plan
 
@@ -120,8 +121,8 @@ and resumes only after the native Gateway approval flow authorizes the call.
    send UI updates over SSE, poll once per second for trigger evaluation, calculate observed
    app-to-Lakebase latency, and make incident creation race-safe.
 7. **Build the code-defined agent.** Load skills and MCP bindings at runtime, generate the
-   autonomous incident prompt, support concurrent runs, implement two-model routing, and
-   emit a generic event stream with tokens and estimated cost.
+   autonomous incident prompt, support concurrent runs, use one configurable model across
+   the complete agent loop, and emit a generic event stream with tokens and estimated cost.
 8. **Complete governed execution.** Bind real tools through Unity Gateway, use the approved
    identity handoff, persist `ASK` state, open the native approval flow, and resume only from
    the authorized Gateway result.

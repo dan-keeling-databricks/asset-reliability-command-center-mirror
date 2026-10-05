@@ -40,8 +40,7 @@ export LAKEBASE_MIGRATE_ON_START=false
 export GOVERNED_MCP_ENDPOINT="$workspace_host/ai-gateway/mcp-services/classic_stable_realtime_demos_catalog.asset_reliability_command_center.asset_reliability_mcp"
 export GOVERNED_SKILL_ENDPOINT="$workspace_host/ai-gateway/skills/?schema=classic_stable_realtime_demos_catalog.asset_reliability_command_center"
 export GOVERNED_SKILL_TOOL=skill_classic_stable_realtime_demos_catalog.asset_reliability_command_center.asset-reliability-response
-export PRIMARY_MODEL_ENDPOINT=databricks-claude-sonnet-4-5
-export FAST_MODEL_ENDPOINT=databricks-gpt-5-1
+export MODEL_ENDPOINT="${MODEL_ENDPOINT:-databricks-claude-sonnet-4-5}"
 
 echo "Starting LIVE mode against $workspace_host using profile $profile."
 echo "WARNING: UI controls will mutate the shared Databricks demo environment."

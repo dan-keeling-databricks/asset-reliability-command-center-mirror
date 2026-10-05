@@ -111,7 +111,7 @@ class ProductionCommandCenterRuntime:
         await self.repository.append_conversation(incident_id, "operator", message)
         started_at = utc_now()
         result = await self.model.chat(
-            self.settings.primary_model_endpoint,
+            self.settings.model_endpoint,
             [
                 {
                     "role": "system",
@@ -131,7 +131,7 @@ class ProductionCommandCenterRuntime:
             RuntimeActivity(
                 category="model_call",
                 title="Follow-up response",
-                actor=self.settings.primary_model_endpoint,
+                actor=self.settings.model_endpoint,
                 status="complete",
                 status_label="Completed",
                 summary="Answered using persisted incident context.",
@@ -259,7 +259,7 @@ class ProductionCommandCenterRuntime:
                     ),
                 },
             ]
-            endpoint = self.settings.fast_model_endpoint
+            endpoint = self.settings.model_endpoint
             last_risk: dict[str, Any] | None = None
             action_continuation_requested = False
             while True:
@@ -440,8 +440,6 @@ class ProductionCommandCenterRuntime:
                     )
                     if tool_name == "assess_failure_risk":
                         last_risk = data
-                        if data.get("risk_band") == "high":
-                            endpoint = self.settings.primary_model_endpoint
                     if tool_name == "submit_work_order":
                         await self._complete_governed_action(
                             incident_id,
