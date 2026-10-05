@@ -9,6 +9,7 @@ endpoint="projects/asset-reliability-command-center/branches/production/endpoint
 backend_port="${BACKEND_PORT:-8000}"
 export FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 export VITE_BACKEND_URL="http://127.0.0.1:$backend_port"
+export ALERT_EVALUATOR_INTERVAL_SECONDS="${ALERT_EVALUATOR_INTERVAL_SECONDS:-0.2}"
 workspace_host="$(databricks auth describe --profile "$profile" 2>/dev/null | awk '/^Host:/ {print $2}')"
 endpoint_json="$(databricks postgres get-endpoint "$endpoint" --profile "$profile" --output json)"
 current_user_json="$(databricks current-user me --profile "$profile" --output json)"

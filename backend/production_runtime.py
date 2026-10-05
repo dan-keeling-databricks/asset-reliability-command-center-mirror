@@ -146,6 +146,9 @@ class ProductionCommandCenterRuntime:
         while True:
             await asyncio.sleep(self.settings.alert_evaluator_interval_seconds)
             try:
+                snapshot = await self.repository.snapshot()
+                if not self.identities.get(snapshot.scenario.id):
+                    continue
                 for incident_id, run_id in await self.repository.evaluate_thresholds():
                     incident = await self.repository.incident(incident_id)
                     if not incident:
