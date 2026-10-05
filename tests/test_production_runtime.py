@@ -1,4 +1,8 @@
-from backend.production_runtime import _valid_decision_rationale, _valid_terminal_response
+from backend.production_runtime import (
+    _canonical_decision_rationale,
+    _valid_decision_rationale,
+    _valid_terminal_response,
+)
 
 
 def test_tool_selection_protocol_accepts_only_decision_rationale() -> None:
@@ -22,3 +26,17 @@ def test_terminal_protocol_requires_exactly_four_ordered_markdown_bullets() -> N
     assert not _valid_terminal_response(valid.removeprefix("- "))
     assert not _valid_terminal_response(f"Conclusion\n{valid}")
     assert not _valid_terminal_response(valid.replace("Evidence", "Risk", 1))
+
+
+def test_decision_rationale_is_canonicalized_without_discarding_model_wording() -> None:
+    assert _canonical_decision_rationale(
+        "```text\n**Decision rationale:**\nTelemetry is required first. "
+        "The risk tool will then assess persistence. Extra prose must be removed.\n```"
+    ) == (
+        "Decision rationale: Telemetry is required first. "
+        "The risk tool will then assess persistence."
+    )
+    assert _canonical_decision_rationale("I will inspect governed telemetry first.") == (
+        "Decision rationale: I will inspect governed telemetry first."
+    )
+    assert _canonical_decision_rationale("") is None

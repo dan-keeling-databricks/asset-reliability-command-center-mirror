@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import Coroutine
 from datetime import datetime
 from typing import Any
@@ -269,7 +270,8 @@ class ProductionCommandCenterRuntime:
                 summary = str(turn.message.get("content") or "")
                 input_tokens = turn.input_tokens
                 output_tokens = turn.output_tokens
-                if tool_calls and not _valid_decision_rationale(summary):
+                canonical_rationale = _canonical_decision_rationale(summary) if tool_calls else None
+                if tool_calls and not canonical_rationale:
                     rationale = await self.model.turn(
                         endpoint,
                         [
@@ -295,11 +297,14 @@ class ProductionCommandCenterRuntime:
                     input_tokens += rationale.input_tokens
                     output_tokens += rationale.output_tokens
                     turn_completed_at = utc_now()
-                    if not _valid_decision_rationale(summary):
+                    canonical_rationale = _canonical_decision_rationale(summary)
+                    if not canonical_rationale:
                         raise RuntimeError(
-                            "Model tool-selection output violated the response protocol after "
-                            "rationale correction"
+                            "Model did not return a usable tool-selection rationale after "
+                            "correction"
                         )
+                if canonical_rationale:
+                    summary = canonical_rationale
                 await self.repository.append_activity(
                     incident_id,
                     RuntimeActivity(
@@ -627,6 +632,23 @@ def _valid_decision_rationale(content: str) -> bool:
         return False
     rationale = content.removeprefix("Decision rationale: ").strip()
     return bool(rationale) and sum(rationale.count(mark) for mark in ".!?") <= 2
+
+
+def _canonical_decision_rationale(content: str) -> str | None:
+    """Preserve model wording while enforcing the presentation-safe rationale envelope."""
+    cleaned = re.sub(r"^```(?:markdown|text)?\s*|\s*```$", "", content.strip(), flags=re.I)
+    if not cleaned:
+        return None
+    match = re.search(r"decision\s+rationale\s*:\s*", cleaned, flags=re.I)
+    rationale = cleaned[match.end() :] if match else cleaned
+    rationale = re.sub(r"^[\s#>*-]+", "", rationale)
+    rationale = re.sub(r"\*\*|__|`", "", rationale)
+    rationale = " ".join(rationale.split())
+    if not rationale:
+        return None
+    sentences = re.split(r"(?<=[.!?])\s+", rationale)
+    concise = " ".join(sentences[:2]).strip()
+    return f"Decision rationale: {concise}" if concise else None
 
 
 def _valid_terminal_response(content: str) -> bool:
