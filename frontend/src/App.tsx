@@ -93,6 +93,7 @@ function App() {
   const [followUp, setFollowUp] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedOperator, setSelectedOperator] = useState("");
   const [fontScale, setFontScale] = useState(() => {
     const saved = Number(localStorage.getItem("command-center-font-scale"));
     return [100, 110, 120, 130].includes(saved) ? saved : 100;
@@ -145,6 +146,11 @@ function App() {
     if (conversation && incidentView === "conversation") conversation.scrollTop = conversation.scrollHeight;
   }, [incident?.activities.length, incident?.conversation.length, incidentView]);
 
+  useEffect(() => {
+    const operatorEmail = snapshot?.shift_operator.operator?.email;
+    if (operatorEmail) setSelectedOperator(operatorEmail);
+  }, [snapshot?.shift_operator.operator?.email]);
+
   const activeByAsset = useMemo(
     () => new Map(snapshot?.active_runs.map((run) => [run.asset_id, run]) ?? []),
     [snapshot?.active_runs]
@@ -196,6 +202,38 @@ function App() {
     }
   };
 
+  const handover = async () => {
+    const selected = snapshot?.shift_operator.recent_users.find(
+      (user) => user.email === selectedOperator
+    );
+    if (!snapshot || !selected) return;
+    const confirmed = window.confirm(
+      `Hand over control to ${selected.name} (${selected.email})? ` +
+      "Active reviews will be archived and a fresh scenario will start for everyone."
+    );
+    if (!confirmed) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await jsonRequest("/api/operator/handover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          operator_email: selected.email,
+          expected_version: snapshot.shift_operator.version,
+          confirmed: true
+        })
+      });
+      setMenuOpen(false);
+      setIncident(null);
+      setSelectedIncidentId(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to hand over control");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const runAction = async (action: RuntimeAction) => {
     if (action.href) window.open(action.href, "_blank", "noopener,noreferrer");
     if (!action.endpoint) return;
@@ -237,6 +275,8 @@ function App() {
     ...incident.activities.map((activity) => ({ kind: "activity" as const, at: activity.emitted_at, activity })),
     ...incident.conversation.map((turn) => ({ kind: "message" as const, at: turn.created_at, turn }))
   ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime()) : [];
+  const isOperator = snapshot.viewer?.is_operator ?? false;
+  const operator = snapshot.shift_operator.operator;
 
   return (
     <main className="command-center">
@@ -250,9 +290,11 @@ function App() {
         </div>
         <div className="demo-menu-wrap">
           <button className="menu-button" aria-label="Open demo controls" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}><i /><i /><i /></button>
-          {menuOpen && <div className="demo-menu"><p>Demo controls</p><div className="text-size-control"><span>Text size</span><button aria-label="Decrease text size" onClick={() => setFontScale((value) => Math.max(100, value - 10))} disabled={fontScale === 100}>−</button><strong>{fontScale}%</strong><button aria-label="Increase text size" onClick={() => setFontScale((value) => Math.min(130, value + 10))} disabled={fontScale === 130}>+</button></div><button onClick={() => void trigger()} disabled={busy || snapshot.scenario.p204_triggered}>Trigger P-204 excursion<span>Start the governed failure scenario</span></button><button className="menu-danger" onClick={() => void restart()} disabled={busy}>Clear & restart<span>Reset all scenario activity</span></button></div>}
+          {menuOpen && <div className="demo-menu"><p>Shift operator</p><div className="operator-control"><label htmlFor="shift-operator">Current control</label><select id="shift-operator" value={selectedOperator} onChange={(event) => setSelectedOperator(event.target.value)}>{snapshot.shift_operator.recent_users.map((user) => <option value={user.email} key={user.email}>{user.name} · {user.email}</option>)}</select><button onClick={() => void handover()} disabled={busy || !selectedOperator || selectedOperator === operator?.email}>Hand over control<span>Archives active reviews and starts a fresh scenario</span></button></div><p>Presentation</p><div className="text-size-control"><span>Text size</span><button aria-label="Decrease text size" onClick={() => setFontScale((value) => Math.max(100, value - 10))} disabled={fontScale === 100}>−</button><strong>{fontScale}%</strong><button aria-label="Increase text size" onClick={() => setFontScale((value) => Math.min(130, value + 10))} disabled={fontScale === 130}>+</button></div><p>Demo controls</p><button onClick={() => void trigger()} disabled={busy || !isOperator || snapshot.scenario.p204_triggered}>Trigger P-204 excursion<span>{isOperator ? "Start the governed failure scenario" : "Available to the shift operator"}</span></button><button className="menu-danger" onClick={() => void restart()} disabled={busy || !isOperator}>Clear & restart<span>{isOperator ? "Reset all scenario activity" : "Available to the shift operator"}</span></button></div>}
         </div>
       </header>
+
+      {!isOperator && operator && <div className="read-only-banner" role="status"><strong>Read-only</strong><span>{operator.name} ({operator.email}) is the current shift operator. You can hand over control from the menu.</span></div>}
 
       {error && <div className="global-error">{error}</div>}
 

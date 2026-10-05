@@ -1,10 +1,21 @@
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from backend.lakebase_repository import LakebaseCommandCenterRepository
+
+
+def test_schema_persists_versioned_operator_and_handover_audit() -> None:
+    schema = (Path(__file__).resolve().parents[1] / "sql" / "lakebase_schema.sql").read_text()
+
+    assert "CREATE TABLE IF NOT EXISTS asset_reliability.app_users" in schema
+    assert "CREATE TABLE IF NOT EXISTS asset_reliability.shift_operator" in schema
+    assert "CREATE TABLE IF NOT EXISTS asset_reliability.shift_operator_audit" in schema
+    assert "previous_version BIGINT NOT NULL" in schema
+    assert "new_version BIGINT NOT NULL" in schema
 
 
 def wait_repository(*, revision: int = 0, coalesce_seconds: float = 0.01):

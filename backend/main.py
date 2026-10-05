@@ -12,7 +12,14 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.lakebase_repository import LakebaseCommandCenterRepository, lakebase_conninfo
 from backend.mcp import AssetReliabilityMCP
-from backend.models import CommandResponse, FollowUpRequest
+from backend.models import (
+    AppUser,
+    CommandResponse,
+    DashboardSnapshot,
+    FollowUpRequest,
+    OperatorHandoverRequest,
+    ViewerState,
+)
 from backend.production_runtime import ProductionCommandCenterRuntime
 from backend.repository import CommandCenterRepository, LocalCommandCenterRepository
 from backend.runtime import (
@@ -74,6 +81,39 @@ def create_app(
         allow_headers=["*"],
     )
 
+    def app_user(email: str | None, name: str | None) -> AppUser:
+        if not email:
+            if settings.app_adapter != "local":
+                raise HTTPException(status_code=401, detail="Authenticated App user is required")
+            email, name = "local.operator@databricks.com", "Local Operator"
+        email = email.lower()
+        fallback_name = email.split("@", 1)[0].replace(".", " ").replace("_", " ").title()
+        return AppUser(
+            email=email,
+            name=name if name and name.lower() != email else fallback_name,
+        )
+
+    async def register_and_snapshot(user: AppUser) -> DashboardSnapshot:
+        await repository.register_user(user)
+        snapshot = await repository.snapshot()
+        operator_email = (
+            snapshot.shift_operator.operator.email if snapshot.shift_operator.operator else None
+        )
+        snapshot.viewer = ViewerState(
+            email=user.email,
+            name=user.name,
+            is_operator=user.email == operator_email,
+        )
+        return snapshot
+
+    def require_operator(snapshot: DashboardSnapshot, user: AppUser) -> None:
+        operator = snapshot.shift_operator.operator
+        if not operator or operator.email != user.email:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Read-only: {operator.name if operator else 'another user'} is operator",
+            )
+
     @app.get("/api/health")
     async def health() -> dict[str, str]:
         return {"status": "ok", "adapter": settings.app_adapter}
@@ -81,9 +121,15 @@ def create_app(
     @app.get("/api/dashboard")
     async def dashboard(
         forwarded_token: str | None = Header(default=None, alias="X-Forwarded-Access-Token"),
+        forwarded_email: str | None = Header(default=None, alias="X-Forwarded-Email"),
+        forwarded_name: str | None = Header(
+            default=None, alias="X-Forwarded-Preferred-Username"
+        ),
     ) -> dict[str, Any]:
-        snapshot = await repository.snapshot()
-        runtime.capture_identity(snapshot.scenario.id, forwarded_token)
+        user = app_user(forwarded_email, forwarded_name)
+        snapshot = await register_and_snapshot(user)
+        if snapshot.viewer and snapshot.viewer.is_operator:
+            runtime.capture_identity(snapshot.scenario.id, forwarded_token)
         return snapshot.model_dump(mode="json")
 
     @app.get("/api/incidents/{incident_id}")
@@ -100,7 +146,14 @@ def create_app(
     )
     async def restart(
         forwarded_token: str | None = Header(default=None, alias="X-Forwarded-Access-Token"),
+        forwarded_email: str | None = Header(default=None, alias="X-Forwarded-Email"),
+        forwarded_name: str | None = Header(
+            default=None, alias="X-Forwarded-Preferred-Username"
+        ),
     ) -> CommandResponse:
+        user = app_user(forwarded_email, forwarded_name)
+        snapshot = await register_and_snapshot(user)
+        require_operator(snapshot, user)
         scenario_id = await runtime.restart()
         runtime.capture_identity(scenario_id, forwarded_token)
         return CommandResponse(scenario_id=scenario_id)
@@ -112,8 +165,14 @@ def create_app(
     )
     async def trigger_p204(
         forwarded_token: str | None = Header(default=None, alias="X-Forwarded-Access-Token"),
+        forwarded_email: str | None = Header(default=None, alias="X-Forwarded-Email"),
+        forwarded_name: str | None = Header(
+            default=None, alias="X-Forwarded-Preferred-Username"
+        ),
     ) -> CommandResponse:
-        snapshot = await repository.snapshot()
+        user = app_user(forwarded_email, forwarded_name)
+        snapshot = await register_and_snapshot(user)
+        require_operator(snapshot, user)
         runtime.capture_identity(snapshot.scenario.id, forwarded_token)
         try:
             command_id = await runtime.trigger_excursion()
@@ -126,10 +185,42 @@ def create_app(
         )
 
     @app.post(
+        "/api/operator/handover",
+        response_model=CommandResponse,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    async def handover_operator(
+        request: OperatorHandoverRequest,
+        forwarded_email: str | None = Header(default=None, alias="X-Forwarded-Email"),
+        forwarded_name: str | None = Header(
+            default=None, alias="X-Forwarded-Preferred-Username"
+        ),
+    ) -> CommandResponse:
+        if not request.confirmed:
+            raise HTTPException(status_code=400, detail="Handover confirmation is required")
+        user = app_user(forwarded_email, forwarded_name)
+        await repository.register_user(user)
+        try:
+            scenario_id = await runtime.handover_operator(
+                request.expected_version, request.operator_email.lower(), user.email
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return CommandResponse(scenario_id=scenario_id)
+
+    @app.post(
         "/api/incidents/{incident_id}/approve",
         status_code=status.HTTP_202_ACCEPTED,
     )
-    async def approve(incident_id: str) -> dict[str, str]:
+    async def approve(
+        incident_id: str,
+        forwarded_email: str | None = Header(default=None, alias="X-Forwarded-Email"),
+        forwarded_name: str | None = Header(
+            default=None, alias="X-Forwarded-Preferred-Username"
+        ),
+    ) -> dict[str, str]:
+        user = app_user(forwarded_email, forwarded_name)
+        require_operator(await register_and_snapshot(user), user)
         try:
             await runtime.approve(incident_id)
         except (LookupError, ValueError) as exc:
@@ -140,7 +231,16 @@ def create_app(
         "/api/incidents/{incident_id}/follow-up",
         status_code=status.HTTP_202_ACCEPTED,
     )
-    async def follow_up(incident_id: str, request: FollowUpRequest) -> dict[str, str]:
+    async def follow_up(
+        incident_id: str,
+        request: FollowUpRequest,
+        forwarded_email: str | None = Header(default=None, alias="X-Forwarded-Email"),
+        forwarded_name: str | None = Header(
+            default=None, alias="X-Forwarded-Preferred-Username"
+        ),
+    ) -> dict[str, str]:
+        user = app_user(forwarded_email, forwarded_name)
+        require_operator(await register_and_snapshot(user), user)
         try:
             await runtime.follow_up(incident_id, request.message)
         except LookupError as exc:
@@ -152,8 +252,14 @@ def create_app(
         request: Request,
         after: int = 0,
         last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+        forwarded_email: str | None = Header(default=None, alias="X-Forwarded-Email"),
+        forwarded_name: str | None = Header(
+            default=None, alias="X-Forwarded-Preferred-Username"
+        ),
     ) -> StreamingResponse:
         cursor = max(after, int(last_event_id or 0))
+        user = app_user(forwarded_email, forwarded_name)
+        await repository.register_user(user)
 
         async def stream():
             nonlocal cursor
@@ -161,6 +267,16 @@ def create_app(
                 snapshot = await repository.wait_for_change(cursor, timeout=10)
                 if snapshot.revision > cursor:
                     cursor = snapshot.revision
+                    operator_email = (
+                        snapshot.shift_operator.operator.email
+                        if snapshot.shift_operator.operator
+                        else None
+                    )
+                    snapshot.viewer = ViewerState(
+                        email=user.email,
+                        name=user.name,
+                        is_operator=user.email == operator_email,
+                    )
                     yield f"id: {cursor}\ndata: {snapshot.model_dump_json()}\n\n"
                 else:
                     yield ": keep-alive\n\n"

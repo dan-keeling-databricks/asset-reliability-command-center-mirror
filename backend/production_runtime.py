@@ -51,6 +51,7 @@ class ProductionCommandCenterRuntime:
         self._run_tasks: set[asyncio.Task[None]] = set()
         self._last_subject: str | None = None
         self._identity_scenario_id: str | None = None
+        self._operator_change_lock = asyncio.Lock()
 
     async def start(self) -> None:
         await self.repository.start()
@@ -95,6 +96,21 @@ class ProductionCommandCenterRuntime:
         )
         await self.repository.enqueue_command(command)
         return command.id
+
+    async def handover_operator(
+        self, expected_version: int, new_operator_email: str, initiated_by: str
+    ) -> str:
+        async with self._operator_change_lock:
+            for task in list(self._run_tasks):
+                task.cancel()
+            if self._run_tasks:
+                await asyncio.gather(*self._run_tasks, return_exceptions=True)
+            self._run_tasks.clear()
+            self.identities.clear()
+            self._identity_scenario_id = None
+            return await self.repository.handover_operator(
+                expected_version, new_operator_email, initiated_by
+            )
 
     async def approve(self, incident_id: str) -> None:
         incident = await self.repository.incident(incident_id)
@@ -153,17 +169,20 @@ class ProductionCommandCenterRuntime:
                 scenario_id = self._identity_scenario_id
                 if not scenario_id or not self.identities.get(scenario_id):
                     continue
-                for incident_id, run_id in await self.repository.evaluate_thresholds(scenario_id):
-                    incident = await self.repository.incident(incident_id)
-                    if not incident:
-                        continue
-                    identity = self.identities.get(incident.scenario_id)
-                    await self.repository.record_run_identity(
-                        run_id,
-                        incident.scenario_id,
-                        identity.subject if identity else None,
-                    )
-                    self._spawn(self._run_agent(incident_id))
+                async with self._operator_change_lock:
+                    for incident_id, run_id in await self.repository.evaluate_thresholds(
+                        scenario_id
+                    ):
+                        incident = await self.repository.incident(incident_id)
+                        if not incident:
+                            continue
+                        identity = self.identities.get(incident.scenario_id)
+                        await self.repository.record_run_identity(
+                            run_id,
+                            incident.scenario_id,
+                            identity.subject if identity else None,
+                        )
+                        self._spawn(self._run_agent(incident_id))
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001

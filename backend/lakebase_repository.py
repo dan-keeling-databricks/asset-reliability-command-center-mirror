@@ -18,6 +18,7 @@ from psycopg_pool import AsyncConnectionPool
 from backend.models import (
     ActiveRun,
     AlertSummary,
+    AppUser,
     ConversationTurn,
     DashboardSnapshot,
     IncidentDetail,
@@ -29,6 +30,7 @@ from backend.models import (
     RuntimeActivity,
     ScenarioCommand,
     ScenarioState,
+    ShiftOperatorState,
 )
 
 
@@ -144,6 +146,9 @@ class LakebaseCommandCenterRepository:
                     "activity_events",
                     "conversation_messages",
                     "work_orders",
+                    "app_users",
+                    "shift_operator",
+                    "shift_operator_audit",
                 ):
                     await connection.execute(
                         sql.SQL("DROP TRIGGER IF EXISTS notify_app_change ON {}").format(
@@ -365,6 +370,24 @@ class LakebaseCommandCenterRepository:
                     (scenario["scenario_id"],),
                 )
             ).fetchone()
+            operator_row = await (
+                await connection.execute(
+                    sql.SQL(
+                        """SELECT state.operator_email, state.version, state.updated_at,
+                        state.updated_by, selected.display_name AS operator_name
+                        FROM {} state LEFT JOIN {} selected
+                          ON selected.email = state.operator_email WHERE state.singleton"""
+                    ).format(self.table("shift_operator"), self.table("app_users"))
+                )
+            ).fetchone()
+            recent_user_rows = await (
+                await connection.execute(
+                    sql.SQL(
+                        "SELECT email, display_name, last_seen_at FROM {} "
+                        "ORDER BY last_seen_at DESC LIMIT 20"
+                    ).format(self.table("app_users"))
+                )
+            ).fetchall()
         query_latency_ms = max(1, round((time.perf_counter() - query_started) * 1000))
 
         pump_models: list[PumpState] = []
@@ -451,6 +474,28 @@ class LakebaseCommandCenterRepository:
             alerts=alerts,
             invocations=invocations,
             active_runs=active_runs,
+            shift_operator=ShiftOperatorState(
+                operator=(
+                    AppUser(
+                        email=operator_row["operator_email"],
+                        name=operator_row["operator_name"],
+                        last_seen_at=operator_row["updated_at"] or scenario["started_at"],
+                    )
+                    if operator_row and operator_row["operator_email"]
+                    else None
+                ),
+                recent_users=[
+                    AppUser(
+                        email=row["email"],
+                        name=row["display_name"],
+                        last_seen_at=row["last_seen_at"],
+                    )
+                    for row in recent_user_rows
+                ],
+                version=int(operator_row["version"] if operator_row else 0),
+                updated_at=operator_row["updated_at"] if operator_row else None,
+                updated_by=operator_row["updated_by"] if operator_row else None,
+            ),
         )
         snapshot = await self._with_revision(snapshot)
         async with self._change_condition:
@@ -696,6 +741,126 @@ class LakebaseCommandCenterRepository:
                         "VALUES (%s, %s, 'restart_scenario', %s)"
                     ).format(self.table("scenario_commands")),
                     (command_id, scenario_id, requested_by),
+                )
+        return str(scenario_id)
+
+    async def register_user(self, user: AppUser) -> ShiftOperatorState:
+        async with self._pool.connection() as connection:
+            async with connection.transaction():
+                await connection.execute(
+                    sql.SQL(
+                        """INSERT INTO {} (email, display_name, last_seen_at)
+                        VALUES (%s, %s, NOW()) ON CONFLICT (email) DO UPDATE
+                        SET display_name = EXCLUDED.display_name, last_seen_at = NOW()"""
+                    ).format(self.table("app_users")),
+                    (user.email, user.name),
+                )
+                await connection.execute(
+                    sql.SQL(
+                        """UPDATE {} SET operator_email = %s, version = version + 1,
+                        updated_at = NOW(), updated_by = %s
+                        WHERE singleton AND operator_email IS NULL"""
+                    ).format(self.table("shift_operator")),
+                    (user.email, user.email),
+                )
+        return (await self.snapshot()).shift_operator
+
+    async def handover_operator(
+        self,
+        expected_version: int,
+        new_operator_email: str,
+        initiated_by: str,
+        fresh_snapshot: DashboardSnapshot | None = None,
+    ) -> str:
+        del fresh_snapshot
+        scenario_id, command_id, audit_id = uuid4(), uuid4(), uuid4()
+        async with self._pool.connection() as connection:
+            async with connection.transaction():
+                state = await (
+                    await connection.execute(
+                        sql.SQL(
+                            "SELECT operator_email, version FROM {} WHERE singleton FOR UPDATE"
+                        ).format(self.table("shift_operator"))
+                    )
+                ).fetchone()
+                if not state or int(state["version"]) != expected_version:
+                    raise ValueError("Operator changed; refresh and confirm the handover again")
+                if state["operator_email"] == new_operator_email:
+                    raise ValueError("The selected user is already the shift operator")
+                selected = await (
+                    await connection.execute(
+                        sql.SQL("SELECT 1 FROM {} WHERE email = %s").format(
+                            self.table("app_users")
+                        ),
+                        (new_operator_email,),
+                    )
+                ).fetchone()
+                if not selected:
+                    raise ValueError("The selected operator is not a recent App user")
+                await connection.execute(
+                    sql.SQL(
+                        """UPDATE {} run SET status = 'failed', completed_at = NOW(),
+                        pending_approval_url = NULL, pending_tool_request = NULL,
+                        error = 'Archived by shift-operator handover'
+                        FROM {} incident WHERE run.incident_id = incident.incident_id
+                          AND incident.scenario_id IN
+                            (SELECT scenario_id FROM {} WHERE status = 'active')
+                          AND run.status IN ('queued', 'running', 'waiting_approval')"""
+                    ).format(
+                        self.table("agent_runs"),
+                        self.table("incidents"),
+                        self.table("scenario_runs"),
+                    )
+                )
+                await connection.execute(
+                    sql.SQL(
+                        """UPDATE {} SET status = 'failed', resolved_at = NOW(),
+                        resolution_summary = 'Archived by shift-operator handover'
+                        WHERE scenario_id IN (SELECT scenario_id FROM {} WHERE status = 'active')
+                          AND status IN ('reviewing', 'waiting_approval')"""
+                    ).format(self.table("incidents"), self.table("scenario_runs"))
+                )
+                await connection.execute(
+                    sql.SQL(
+                        "UPDATE {} SET status = 'archived', ended_at = NOW() "
+                        "WHERE status = 'active'"
+                    ).format(self.table("scenario_runs"))
+                )
+                await connection.execute(
+                    sql.SQL(
+                        "INSERT INTO {} (scenario_id, status, requested_by) "
+                        "VALUES (%s, 'active', %s)"
+                    ).format(self.table("scenario_runs")),
+                    (scenario_id, initiated_by),
+                )
+                await connection.execute(
+                    sql.SQL(
+                        "INSERT INTO {} (command_id, scenario_id, command_type, requested_by) "
+                        "VALUES (%s, %s, 'restart_scenario', %s)"
+                    ).format(self.table("scenario_commands")),
+                    (command_id, scenario_id, initiated_by),
+                )
+                await connection.execute(
+                    sql.SQL(
+                        """UPDATE {} SET operator_email = %s, version = version + 1,
+                        updated_at = NOW(), updated_by = %s WHERE singleton"""
+                    ).format(self.table("shift_operator")),
+                    (new_operator_email, initiated_by),
+                )
+                await connection.execute(
+                    sql.SQL(
+                        """INSERT INTO {} (audit_id, previous_operator_email,
+                        new_operator_email, initiated_by, previous_version, new_version)
+                        VALUES (%s, %s, %s, %s, %s, %s)"""
+                    ).format(self.table("shift_operator_audit")),
+                    (
+                        audit_id,
+                        state["operator_email"],
+                        new_operator_email,
+                        initiated_by,
+                        expected_version,
+                        expected_version + 1,
+                    ),
                 )
         return str(scenario_id)
 

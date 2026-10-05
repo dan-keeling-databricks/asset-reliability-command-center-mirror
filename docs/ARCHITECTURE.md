@@ -106,6 +106,9 @@ concurrently. OBO tokens remain in process memory; only identity subjects are pe
 | `work_orders` | Governed maintenance result |
 | `run_identities` | Persisted user subject audit metadata, never tokens |
 | `component_heartbeats` | Producer health and acknowledged message count |
+| `app_users` | Recently observed authenticated App users available for operator selection |
+| `shift_operator` | Singleton, versioned shared operator assignment |
+| `shift_operator_audit` | Immutable operator handover audit trail |
 
 Uniqueness constraints prevent duplicate active scenarios, commands, incidents, events, and
 work orders. Database notifications are hints; canonical state always comes from tables.
@@ -151,6 +154,9 @@ discover work. Cleanup failure is isolated from ingestion and interactive reads.
 - Model, Skill, MCP, and Gateway access are Databricks-native resource bindings.
 - Generated connection credentials and OAuth secrets are created through APIs and never
   stored in this repository.
+- Only the centrally selected shift operator can reset or trigger scenarios and initiate
+  agent follow-ups. Any authenticated user can explicitly hand over control; the versioned
+  handover transaction archives active reviews and starts a fresh shared scenario.
 
 ## Source layout
 

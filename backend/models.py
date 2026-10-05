@@ -149,6 +149,26 @@ class ScenarioState(BaseModel):
     started_at: datetime = Field(default_factory=utc_now)
 
 
+class AppUser(BaseModel):
+    email: str
+    name: str
+    last_seen_at: datetime = Field(default_factory=utc_now)
+
+
+class ShiftOperatorState(BaseModel):
+    operator: AppUser | None = None
+    recent_users: list[AppUser] = Field(default_factory=list)
+    version: int = 0
+    updated_at: datetime | None = None
+    updated_by: str | None = None
+
+
+class ViewerState(BaseModel):
+    email: str
+    name: str
+    is_operator: bool = False
+
+
 class ScenarioCommand(BaseModel):
     id: str = Field(default_factory=lambda: new_id("command"))
     scenario_id: str
@@ -167,10 +187,18 @@ class DashboardSnapshot(BaseModel):
     alerts: list[AlertSummary] = Field(default_factory=list)
     invocations: list[InvocationSummary] = Field(default_factory=list)
     active_runs: list[ActiveRun] = Field(default_factory=list)
+    shift_operator: ShiftOperatorState = Field(default_factory=ShiftOperatorState)
+    viewer: ViewerState | None = None
 
 
 class FollowUpRequest(BaseModel):
     message: str = Field(min_length=1, max_length=1000)
+
+
+class OperatorHandoverRequest(BaseModel):
+    operator_email: str = Field(min_length=3, max_length=320)
+    expected_version: int = Field(ge=0)
+    confirmed: bool
 
 
 class CommandResponse(BaseModel):

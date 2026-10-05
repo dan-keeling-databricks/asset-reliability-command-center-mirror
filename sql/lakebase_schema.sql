@@ -39,6 +39,34 @@ CREATE UNIQUE INDEX IF NOT EXISTS one_active_asset_reliability_scenario
     ON asset_reliability.scenario_runs ((status))
     WHERE status = 'active';
 
+CREATE TABLE IF NOT EXISTS asset_reliability.app_users (
+    email TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS asset_reliability.shift_operator (
+    singleton BOOLEAN PRIMARY KEY DEFAULT true CHECK (singleton),
+    operator_email TEXT REFERENCES asset_reliability.app_users(email),
+    version BIGINT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ,
+    updated_by TEXT
+);
+
+INSERT INTO asset_reliability.shift_operator (singleton)
+VALUES (true) ON CONFLICT (singleton) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS asset_reliability.shift_operator_audit (
+    audit_id UUID PRIMARY KEY,
+    previous_operator_email TEXT,
+    new_operator_email TEXT NOT NULL,
+    initiated_by TEXT NOT NULL,
+    changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    previous_version BIGINT NOT NULL,
+    new_version BIGINT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS asset_reliability.scenario_commands (
     command_id UUID PRIMARY KEY,
     scenario_id UUID NOT NULL REFERENCES asset_reliability.scenario_runs(scenario_id),

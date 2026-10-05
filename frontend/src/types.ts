@@ -70,6 +70,14 @@ export type DashboardSnapshot = {
   alerts: AlertSummary[];
   invocations: InvocationSummary[];
   active_runs: ActiveRun[];
+  shift_operator: {
+    operator?: { email: string; name: string; last_seen_at: string } | null;
+    recent_users: { email: string; name: string; last_seen_at: string }[];
+    version: number;
+    updated_at?: string | null;
+    updated_by?: string | null;
+  };
+  viewer?: { email: string; name: string; is_operator: boolean } | null;
 };
 
 export type RuntimeAction = {

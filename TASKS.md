@@ -31,6 +31,7 @@ existing `classic_stable_realtime_demos_catalog` and the dedicated
 | UI | Add presentation typography controls and second-round incident conversation/Gantt refinements | Complete on `feat/ui_feedback_round_two` |
 | UI feedback round 1 | Simplify fleet navigation, latency, controls, and consolidated history | In review |
 | UI feedback round 1 | Unify incident conversation, prompt context, event icons, and execution timeline | In review |
+| Multi-user control | Persist one shared shift operator with audited, concurrency-safe handover | Complete on `feat/shared-shift-operator` |
 | Repository | Document architecture, manual deployment, and multi-agent worktree conventions | Complete |
 | Repository | Publish the repository and feature branch to GitHub | Complete |
 

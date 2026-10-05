@@ -3,7 +3,14 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Protocol
 
-from backend.models import DashboardSnapshot, IncidentDetail, ScenarioCommand, utc_now
+from backend.models import (
+    AppUser,
+    DashboardSnapshot,
+    IncidentDetail,
+    ScenarioCommand,
+    ShiftOperatorState,
+    utc_now,
+)
 
 
 class Mutation(Protocol):
@@ -29,6 +36,14 @@ class CommandCenterRepository(Protocol):
         self, work_order_id: str, incident_id: str, payload: dict[str, Any]
     ) -> dict[str, Any]: ...
     async def telemetry_window(self, asset_id: str, limit: int = 12) -> list[dict[str, Any]]: ...
+    async def register_user(self, user: AppUser) -> ShiftOperatorState: ...
+    async def handover_operator(
+        self,
+        expected_version: int,
+        new_operator_email: str,
+        initiated_by: str,
+        fresh_snapshot: DashboardSnapshot | None = None,
+    ) -> str: ...
 
 
 class LocalCommandCenterRepository:
@@ -40,6 +55,7 @@ class LocalCommandCenterRepository:
         self._commands: dict[str, ScenarioCommand] = {}
         self._identities: dict[str, dict[str, Any]] = {}
         self._work_orders: dict[str, dict[str, Any]] = {}
+        self._operator_audit: list[dict[str, Any]] = []
         self._condition = asyncio.Condition()
 
     async def start(self) -> None:
@@ -75,6 +91,68 @@ class LocalCommandCenterRepository:
                 except TimeoutError:
                     pass
             return self._snapshot.model_copy(deep=True)
+
+    async def register_user(self, user: AppUser) -> ShiftOperatorState:
+        async with self._condition:
+            users = {item.email: item for item in self._snapshot.shift_operator.recent_users}
+            existing = users.get(user.email)
+            changed = existing is None or existing.name != user.name
+            users[user.email] = user
+            self._snapshot.shift_operator.recent_users = sorted(
+                users.values(), key=lambda item: item.last_seen_at, reverse=True
+            )[:20]
+            if self._snapshot.shift_operator.operator is None:
+                self._snapshot.shift_operator.operator = user
+                self._snapshot.shift_operator.version = 1
+                self._snapshot.shift_operator.updated_at = utc_now()
+                self._snapshot.shift_operator.updated_by = user.email
+                changed = True
+            if changed:
+                self._snapshot.revision += 1
+                self._condition.notify_all()
+            return self._snapshot.shift_operator.model_copy(deep=True)
+
+    async def handover_operator(
+        self,
+        expected_version: int,
+        new_operator_email: str,
+        initiated_by: str,
+        fresh_snapshot: DashboardSnapshot | None = None,
+    ) -> str:
+        async with self._condition:
+            state = self._snapshot.shift_operator
+            if state.version != expected_version:
+                raise ValueError("Operator changed; refresh and confirm the handover again")
+            if state.operator and state.operator.email == new_operator_email:
+                raise ValueError("The selected user is already the shift operator")
+            new_operator = next(
+                (user for user in state.recent_users if user.email == new_operator_email), None
+            )
+            if not new_operator:
+                raise ValueError("The selected operator is not a recent App user")
+            previous = state.operator.email if state.operator else None
+            if fresh_snapshot is None:
+                raise ValueError("Local handover requires a fresh scenario snapshot")
+            previous_revision = self._snapshot.revision
+            self._incidents.clear()
+            self._commands.clear()
+            fresh_snapshot.shift_operator = state.model_copy(deep=True)
+            self._snapshot = fresh_snapshot
+            self._snapshot.shift_operator.operator = new_operator
+            self._snapshot.shift_operator.version += 1
+            self._snapshot.shift_operator.updated_at = utc_now()
+            self._snapshot.shift_operator.updated_by = initiated_by
+            self._snapshot.revision = previous_revision + 1
+            self._operator_audit.append(
+                {
+                    "previous_operator": previous,
+                    "new_operator": new_operator.email,
+                    "initiated_by": initiated_by,
+                    "changed_at": self._snapshot.shift_operator.updated_at,
+                }
+            )
+            self._condition.notify_all()
+            return self._snapshot.scenario.id
 
     async def enqueue_command(self, command: ScenarioCommand) -> None:
         async with self._condition:

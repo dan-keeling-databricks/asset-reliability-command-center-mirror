@@ -191,3 +191,77 @@ def test_active_threshold_review_is_not_preclassified_as_transient() -> None:
 
         assert active_pumps
         assert all(pump["state_label"] == "Agent reviewing" for pump in active_pumps)
+
+
+def test_shared_operator_handover_resets_scenario_and_enforces_version() -> None:
+    settings = Settings(
+        app_adapter="local",
+        telemetry_interval_seconds=0.05,
+        alert_evaluator_interval_seconds=0.02,
+        local_event_step_seconds=0.01,
+    )
+    repository = LocalCommandCenterRepository(initial_snapshot())
+    runtime = LocalCommandCenterRuntime(repository, settings)
+    alice = {
+        "X-Forwarded-Email": "alice@databricks.com",
+        "X-Forwarded-Preferred-Username": "Alice",
+    }
+    bob = {
+        "X-Forwarded-Email": "bob@databricks.com",
+        "X-Forwarded-Preferred-Username": "Bob",
+    }
+
+    with TestClient(create_app(settings, repository, runtime)) as client:
+        first = client.get("/api/dashboard", headers=alice).json()
+        original_scenario = first["scenario"]["id"]
+        assert first["viewer"]["is_operator"] is True
+        assert first["shift_operator"]["operator"]["email"] == "alice@databricks.com"
+
+        bob_view = client.get("/api/dashboard", headers=bob).json()
+        assert bob_view["viewer"]["is_operator"] is False
+        assert client.post("/api/scenario/trigger-p204", headers=bob).status_code == 403
+
+        handed_over = client.post(
+            "/api/operator/handover",
+            headers=bob,
+            json={
+                "operator_email": "bob@databricks.com",
+                "expected_version": bob_view["shift_operator"]["version"],
+                "confirmed": True,
+            },
+        )
+        assert handed_over.status_code == 202
+        assert handed_over.json()["scenario_id"] != original_scenario
+
+        after = client.get("/api/dashboard", headers=bob).json()
+        assert after["viewer"]["is_operator"] is True
+        assert after["shift_operator"]["operator"]["name"] == "Bob"
+        assert after["revision"] > bob_view["revision"]
+        assert after["alerts"] == []
+        assert repository._operator_audit[-1]["previous_operator"] == "alice@databricks.com"
+        assert repository._operator_audit[-1]["initiated_by"] == "bob@databricks.com"
+
+        stale = client.post(
+            "/api/operator/handover",
+            headers=alice,
+            json={
+                "operator_email": "alice@databricks.com",
+                "expected_version": bob_view["shift_operator"]["version"],
+                "confirmed": True,
+            },
+        )
+        assert stale.status_code == 409
+
+
+def test_operator_handover_requires_explicit_confirmation() -> None:
+    with local_client() as client:
+        dashboard = client.get("/api/dashboard").json()
+        response = client.post(
+            "/api/operator/handover",
+            json={
+                "operator_email": dashboard["shift_operator"]["operator"]["email"],
+                "expected_version": dashboard["shift_operator"]["version"],
+                "confirmed": False,
+            },
+        )
+        assert response.status_code == 400

@@ -235,6 +235,13 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .text-size-control > button { width: 34px; height: 32px; padding: 0; border: 1px solid #d5d5d0; text-align: center; background: #fff; }
 .text-size-control > button:disabled { opacity: .35; }
 .text-size-control > strong { text-align: center; font-family: "DM Mono", monospace; }
+.operator-control { margin: 0 4px 8px; padding: 4px 6px 10px; border-bottom: 1px solid #e5e5e1; }
+.operator-control label { display: block; margin-bottom: 5px; color: var(--muted); font-weight: 700; }
+.operator-control select { width: 100%; min-width: 0; padding: 8px; border: 1px solid #d5d5d0; border-radius: 7px; background: #fff; font: inherit; }
+.operator-control button { margin-top: 7px; border: 1px solid #d5d5d0; background: #f8f8f6; }
+.read-only-banner { max-width: 1540px; margin: 0 auto 10px; padding: 10px 14px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid #e8c374; border-radius: 9px; color: #755000; background: #fff8e5; }
+.read-only-banner strong { padding: 3px 7px; border-radius: 5px; color: #fff; background: #9a6200; }
+.demo-menu button:disabled { cursor: not-allowed; opacity: .45; }
 
 .incident-review { grid-template-rows: auto minmax(0, 1fr) auto; }
 .incident-header { min-height: 76px; grid-template-columns: minmax(250px, 1fr) auto auto 32px; }

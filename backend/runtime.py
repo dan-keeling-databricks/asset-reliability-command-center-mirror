@@ -31,6 +31,9 @@ class CommandCenterRuntime(Protocol):
     async def stop(self) -> None: ...
     async def restart(self) -> str: ...
     async def trigger_excursion(self) -> str: ...
+    async def handover_operator(
+        self, expected_version: int, new_operator_email: str, initiated_by: str
+    ) -> str: ...
     def capture_identity(self, scenario_id: str, token: str | None) -> None: ...
     async def approve(self, incident_id: str) -> None: ...
     async def follow_up(self, incident_id: str, message: str) -> None: ...
@@ -129,6 +132,25 @@ class LocalCommandCenterRuntime:
         self._spawn(self._run_normal_transient("P-202", 0.45, "Startup recirculation"))
         self._spawn(self._run_normal_transient("P-207", 0.8, "Valve transition"))
         return snapshot.scenario.id
+
+    async def handover_operator(
+        self, expected_version: int, new_operator_email: str, initiated_by: str
+    ) -> str:
+        for task in list(self._run_tasks):
+            task.cancel()
+        if self._run_tasks:
+            await asyncio.gather(*self._run_tasks, return_exceptions=True)
+        self._run_tasks.clear()
+        self._excursion_assets.clear()
+        scenario_id = await self.repository.handover_operator(
+            expected_version,
+            new_operator_email,
+            initiated_by,
+            initial_snapshot(),
+        )
+        self._spawn(self._run_normal_transient("P-202", 0.45, "Startup recirculation"))
+        self._spawn(self._run_normal_transient("P-207", 0.8, "Valve transition"))
+        return scenario_id
 
     async def trigger_excursion(self) -> str:
         snapshot = await self.repository.snapshot()
