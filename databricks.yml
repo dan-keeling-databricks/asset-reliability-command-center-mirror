@@ -310,7 +310,9 @@ resources:
               lakebase_database: databricks_postgres
               lakebase_table: ${var.lakebase_schema}.telemetry_events
               starting_offsets: latest
-              trigger_interval: 5 minutes
+              # Demo-specific RTM epoch: the native Lakebase sink becomes visible at epoch
+              # boundaries in this workspace, so ten seconds keeps the live UI responsive.
+              trigger_interval: 10 seconds
               diagnostic_seconds: "0"
 
     governed_telemetry_history_continuous:

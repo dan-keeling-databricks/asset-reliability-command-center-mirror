@@ -63,7 +63,10 @@ dbutils.widgets.text(
 dbutils.widgets.text("lakebase_database", "databricks_postgres")
 dbutils.widgets.text("lakebase_table", "asset_reliability.telemetry_events")
 dbutils.widgets.text("starting_offsets", "latest")
-dbutils.widgets.text("trigger_interval", "5 minutes")
+# The native Lakebase sink in the demo workspace publishes at RTM epoch boundaries. A short
+# epoch keeps presenter-triggered telemetry visible without changing the RTM execution mode.
+# Production workloads should benchmark a longer checkpoint cadence against their latency SLA.
+dbutils.widgets.text("trigger_interval", "10 seconds")
 dbutils.widgets.text("diagnostic_seconds", "0")
 
 # COMMAND ----------

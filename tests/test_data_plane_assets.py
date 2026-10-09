@@ -135,6 +135,7 @@ def test_bundle_uses_classic_pipeline_native_genie_and_obo_scope() -> None:
     # standalone job clusters still set SINGLE_USER explicitly in their resource definitions.
     assert '"data_security_mode": {' not in bundle
     assert bundle.count("data_security_mode: SINGLE_USER") == 3
+    assert "trigger_interval: 10 seconds" in bundle
     assert bundle.count(
         "policy_id: ${resources.cluster_policies.asset_reliability_workloads.id}"
     ) == 4

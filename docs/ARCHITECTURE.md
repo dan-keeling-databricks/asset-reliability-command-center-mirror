@@ -57,7 +57,11 @@ advancement, and deterministic event identifiers make downstream retries idempot
 
 The standalone Spark Structured Streaming job runs in Real-Time Mode on dedicated classic
 compute. It decodes Kafka envelopes and uses the native PostgreSQL sink to write Lakebase
-`telemetry_events`. A trigger maintains `pump_live_state` and publishes `LISTEN/NOTIFY` hints.
+`telemetry_events`. In this demo workspace the native sink becomes visible at RTM epoch
+boundaries, so the bundle uses a demo-specific ten-second epoch and a fifteen-second freshness
+window. Production deployments should use the documented longer checkpoint cadence and benchmark
+the sink against their latency SLA. A trigger maintains `pump_live_state` and publishes
+`LISTEN/NOTIFY` hints.
 
 The App reads bounded current-state and per-pump top-N queries, coalesces database notification
 bursts, and pushes canonical snapshots over SSE. An independent one-second evaluator queries

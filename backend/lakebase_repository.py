@@ -41,6 +41,8 @@ from backend.models import (
     ShiftOperatorState,
 )
 
+RTM_FRESHNESS_SECONDS = 15
+
 
 @dataclass(frozen=True)
 class ApprovalReplayClaim:
@@ -504,7 +506,10 @@ class LakebaseCommandCenterRepository:
             stale_components.append("producer")
         # RTM health is derived from its durable effect rather than a process-local status:
         # fresh ingested telemetry proves that Kafka records are reaching Lakebase.
-        if not latest_ingested or (now - latest_ingested).total_seconds() > 5:
+        if (
+            not latest_ingested
+            or (now - latest_ingested).total_seconds() > RTM_FRESHNESS_SECONDS
+        ):
             stale_components.extend(["telemetry", "rtm"])
         if (
             not evaluator

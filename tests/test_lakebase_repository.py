@@ -7,7 +7,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.lakebase_repository import LakebaseCommandCenterRepository
+from backend.lakebase_repository import RTM_FRESHNESS_SECONDS, LakebaseCommandCenterRepository
+
+
+def test_rtm_freshness_window_covers_the_demo_epoch() -> None:
+    assert RTM_FRESHNESS_SECONDS == 15
 
 
 def test_schema_persists_versioned_operator_and_handover_audit() -> None:
