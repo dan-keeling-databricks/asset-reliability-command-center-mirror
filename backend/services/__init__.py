@@ -1,1 +1,1 @@
-"""Application services."""
+"""Reserved package for independently testable application services."""

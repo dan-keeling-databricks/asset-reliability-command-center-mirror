@@ -1,3 +1,10 @@
+"""Canonical Lakebase persistence and notification adapter.
+
+The repository owns schema migration, bounded command-center reads, transactional incident
+state, durable activity history, LISTEN/NOTIFY change hints, and best-effort telemetry
+retention. Database rows—not notifications or in-process counters—remain authoritative.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -97,6 +104,8 @@ class LakebaseCommandCenterRepository:
         return sql.SQL("{}.{}").format(sql.Identifier(self.schema), sql.Identifier(name))
 
     async def start(self) -> None:
+        """Open the pool, apply idempotent schema setup, then start maintenance tasks."""
+
         await self._pool.open(wait=True, timeout=30)
         await self._migrate()
         await self._ensure_active_scenario()
@@ -112,6 +121,8 @@ class LakebaseCommandCenterRepository:
         await self._pool.close()
 
     async def _migrate(self) -> None:
+        """Apply the baseline SQL and App-specific notification/identity extensions."""
+
         migration_path = Path(__file__).resolve().parents[1] / "sql" / "lakebase_schema.sql"
         migration = migration_path.read_text()
         if self.schema != "asset_reliability":
@@ -201,6 +212,12 @@ class LakebaseCommandCenterRepository:
                 )
 
     async def _listen_loop(self) -> None:
+        """Convert lossy PostgreSQL notifications into local snapshot invalidations.
+
+        Notifications are hints only. Reconnects and dropped notifications are safe because
+        every consumer rebuilds its response from canonical tables.
+        """
+
         while True:
             try:
                 async with await OAuthAsyncConnection.connect(
@@ -322,6 +339,8 @@ class LakebaseCommandCenterRepository:
         )
 
     async def snapshot(self) -> DashboardSnapshot:
+        """Build one bounded dashboard read model and advance its process-local revision."""
+
         query_started = time.perf_counter()
         async with self._change_condition:
             snapshot_change_counter = self._change_counter
@@ -676,6 +695,8 @@ class LakebaseCommandCenterRepository:
         )
 
     async def wait_for_change(self, after_revision: int, timeout: float) -> DashboardSnapshot:
+        """Coalesce notification bursts before rebuilding the canonical snapshot."""
+
         if self._revision > after_revision:
             return await self.snapshot()
 
@@ -945,6 +966,13 @@ class LakebaseCommandCenterRepository:
         tokens: tuple[int, int, float] | None = None,
         tool_call: bool = False,
     ) -> None:
+        """Persist one runtime-emitted event and atomically update run totals.
+
+        The current ``MAX(sequence) + 1`` allocation assumes one writer per run. A future
+        multi-writer implementation must lock or use a dedicated counter before relaxing that
+        invariant; this limitation is tracked in the technical-debt register.
+        """
+
         async with self._pool.connection() as connection:
             async with connection.transaction():
                 run = await (
@@ -1058,6 +1086,11 @@ class LakebaseCommandCenterRepository:
                 )
 
     async def append_conversation(self, incident_id: str, role: str, content: str) -> None:
+        """Append an operator/system message to an incident's ordered conversation.
+
+        As with activity events, ordering currently assumes a single writer per incident.
+        """
+
         async with self._pool.connection() as connection:
             await connection.execute(
                 sql.SQL(

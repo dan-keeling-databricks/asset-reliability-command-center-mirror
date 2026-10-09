@@ -1,3 +1,11 @@
+"""FastAPI composition root for the Databricks App.
+
+This module selects local or Lakebase adapters, captures forwarded Databricks identity, exposes
+the browser API and App-backed MCP source, and serves the compiled React bundle. The intended
+business-authorization boundary for governed execution is Unity Gateway; source-route hardening
+is tracked explicitly in the technical-debt register.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -35,6 +43,8 @@ def create_app(
     repository: CommandCenterRepository | None = None,
     runtime: CommandCenterRuntime | None = None,
 ) -> FastAPI:
+    """Construct the App with injectable persistence/runtime boundaries for tests."""
+
     settings = settings or get_settings()
     if repository is None:
         if settings.app_adapter == "lakebase":
@@ -273,6 +283,8 @@ def create_app(
             default=None, alias="X-Forwarded-Preferred-Username"
         ),
     ) -> StreamingResponse:
+        """Stream canonical dashboard snapshots; SSE events are never durable state."""
+
         cursor = max(after, int(last_event_id or 0))
         user = app_user(forwarded_email, forwarded_name)
         runtime.cache_user_identity(user.email, forwarded_token)
@@ -311,6 +323,13 @@ def create_app(
 
     @app.post("/mcp", include_in_schema=False)
     async def mcp(request: Request) -> Response:
+        """Expose the source MCP protocol consumed by the configured Gateway connection.
+
+        The route currently relies on the Databricks App boundary for caller authentication.
+        Restricting it to the connection principal is tracked as governance debt because App
+        users must not be able to bypass Gateway policy by calling the source directly.
+        """
+
         payload = await request.json()
         if not isinstance(payload, dict):
             return JSONResponse(

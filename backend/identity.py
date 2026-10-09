@@ -1,3 +1,10 @@
+"""Process-local handling of forwarded operator credentials.
+
+Bearer tokens are deliberately excluded from Lakebase and logs. Only the decoded subject is
+persisted for audit, so an App restart requires a fresh authenticated request before a pending
+Gateway action can resume.
+"""
+
 from __future__ import annotations
 
 import base64
@@ -7,6 +14,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class OboIdentity:
+    """Opaque operator token plus the non-secret subject extracted for audit."""
+
     token: str
     subject: str | None
 
@@ -18,6 +27,8 @@ class OboIdentityRegistry:
         self._identities: dict[str, OboIdentity] = {}
 
     def capture(self, scenario_id: str, token: str | None) -> OboIdentity | None:
+        """Bind a forwarded token to a scenario without persisting the credential."""
+
         if not token:
             return self._identities.get(scenario_id)
         identity = OboIdentity(token=token, subject=_jwt_subject(token))

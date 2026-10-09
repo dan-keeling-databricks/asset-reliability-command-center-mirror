@@ -1,5 +1,17 @@
 # Databricks notebook source
-"""Standalone Spark Real-Time Mode ingestion: Kafka to Lakebase."""
+# MAGIC %md
+# MAGIC # Kafka-to-Lakebase Real-Time Mode ingestion
+# MAGIC
+# MAGIC This standalone Structured Streaming query consumes the pump telemetry topic and writes
+# MAGIC validated events directly to Lakebase through the native PostgreSQL sink. It intentionally
+# MAGIC owns no alerting or agent logic; those decisions remain in the Databricks App.
+# MAGIC
+# MAGIC The query runs on dedicated DBR 19 classic compute with Real-Time Mode enabled and stores
+# MAGIC its checkpoint in a Unity Catalog volume.
+
+# COMMAND ----------
+
+"""Standalone Spark Real-Time Mode ingestion from Kafka to Lakebase."""
 
 from __future__ import annotations
 
@@ -16,6 +28,17 @@ from pyspark.sql.types import (
     StructField,
     StructType,
 )
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Runtime configuration and checkpoint
+# MAGIC
+# MAGIC Widgets make the Unity Catalog namespace, broker, topic, Lakebase sink, starting offsets,
+# MAGIC and diagnostic lifetime deployable through the Asset Bundle. Identifier validation occurs
+# MAGIC before the streaming query starts. The checkpoint path is stable across job replacements.
+
+# COMMAND ----------
 
 dbutils.widgets.text("catalog", "classic_stable_realtime_demos_catalog")
 dbutils.widgets.text("schema", "asset_reliability_command_center")
@@ -56,8 +79,20 @@ print(
 )
 print("checkpoint =", CHECKPOINT)
 
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Query observability
+# MAGIC
+# MAGIC The listener emits source rate, processing rate, latency, and sink-row metrics into the job
+# MAGIC logs without altering the streaming data path.
+
+# COMMAND ----------
+
 
 class ProgressLogger(StreamingQueryListener):
+    """Emit compact RTM progress records to the Databricks job logs."""
+
     def onQueryStarted(self, event):
         print(f"[RTM START] id={event.id}")
 
@@ -82,6 +117,17 @@ class ProgressLogger(StreamingQueryListener):
 
 
 spark.streams.addListener(ProgressLogger())
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Decode and validate the telemetry envelope
+# MAGIC
+# MAGIC Kafka metadata is retained alongside the business payload for traceability. Struct parsing
+# MAGIC enforces the expected shape, while the final filter prevents rows without core identity or
+# MAGIC event-time fields from reaching the operational store.
+
+# COMMAND ----------
 
 message_schema = StructType(
     [
@@ -125,6 +171,17 @@ telemetry = (
         & F.col("event_time").isNotNull()
     )
 )
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Native Lakebase sink and lifecycle
+# MAGIC
+# MAGIC The PostgreSQL sink uses update mode, a persistent checkpoint, small sink batches, and a
+# MAGIC Real-Time Mode trigger. Diagnostic runs stop after the requested interval and return recent
+# MAGIC progress as JSON; the continuous production job otherwise waits for termination.
+
+# COMMAND ----------
 
 query = (
     telemetry.writeStream.format("postgresql")

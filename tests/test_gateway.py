@@ -1,3 +1,5 @@
+"""Unity Gateway transport tests, including native ``ASK`` elicitation decoding."""
+
 import json
 
 import httpx

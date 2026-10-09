@@ -6,6 +6,7 @@ runtime-driven agent governance. See [DEMO.md](DEMO.md) for the approved narrati
 ## Documentation
 
 - [Technical architecture](docs/ARCHITECTURE.md)
+- [Technical debt register](docs/TECHNICAL_DEBT.md)
 - [Manual deployment runbook](docs/DEPLOYMENT.md)
 - [Contribution and branching model](CONTRIBUTING.md)
 - [Repository instructions for coding agents](AGENTS.md)
@@ -28,10 +29,11 @@ Lakebase, Kafka, model serving, or Gateway infrastructure.
 
 ```bash
 uv run pytest
-uv run ruff check backend tests
+uv run ruff check backend tests src scripts
 npm --prefix frontend run typecheck
 npm --prefix frontend run build
 uv export --no-dev --format requirements-txt --output-file requirements.txt
+databricks bundle validate --target dev --profile fe_vm_rtm
 ```
 
 After the frontend build, FastAPI serves `frontend/dist` on port 8000. The server contracts

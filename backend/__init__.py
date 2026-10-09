@@ -1,1 +1,1 @@
-"""Asset Reliability Command Center backend."""
+"""Server-side application, persistence, agent, and governance components."""

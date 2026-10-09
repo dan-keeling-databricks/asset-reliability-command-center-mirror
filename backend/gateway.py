@@ -1,3 +1,10 @@
+"""MCP-over-Unity-Gateway transport and native human-approval decoding.
+
+The application always sends operator OBO credentials on Gateway calls. An ``ASK`` response
+is represented as data by :class:`GatewayAsk`; this module never approves or executes a
+request locally.
+"""
+
 from __future__ import annotations
 
 import json
@@ -16,6 +23,8 @@ class GatewayElicitation:
 
 
 class GatewayAsk(Exception):
+    """Signal that Gateway paused an exact serialized request for authorization."""
+
     def __init__(self, serialized_request: str, elicitation: GatewayElicitation) -> None:
         super().__init__(elicitation.message)
         self.serialized_request = serialized_request
@@ -35,6 +44,8 @@ class GovernedGatewayClient:
             await self._client.aclose()
 
     async def list_tools(self, token: str) -> list[dict[str, Any]]:
+        """Discover tools on the one configured MCP service for the active operator."""
+
         request = {
             "jsonrpc": "2.0",
             "id": str(uuid4()),
@@ -59,6 +70,8 @@ class GovernedGatewayClient:
         return await self._send(serialized_request, token)
 
     async def _send(self, serialized_request: str, token: str) -> dict[str, Any]:
+        """Send exact JSON-RPC bytes and translate Gateway's URL elicitation into ``ASK``."""
+
         response = await self._client.post(
             self.endpoint,
             content=serialized_request,

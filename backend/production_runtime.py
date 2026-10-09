@@ -1,3 +1,10 @@
+"""Production autonomous-agent orchestration for Lakebase and Unity Gateway.
+
+Each incident runs in its own asyncio task. The loop loads the governed Skill, discovers tools
+on one configured MCP service, lets the model select calls, records every observed event, and
+stops immediately when Gateway returns ``ASK``. Approval replay uses the exact persisted request.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -100,6 +107,12 @@ class ProductionCommandCenterRuntime:
         return True
 
     async def restart(self) -> str:
+        """Create a fresh scenario and clear process-local operator identity.
+
+        Unlike operator handover, this path does not yet cancel old incident tasks. That known
+        lifecycle gap is recorded as high-priority technical debt rather than hidden here.
+        """
+
         self.identities.clear()
         self._identity_scenario_id = None
         return await self.repository.restart_scenario(self._last_subject)
@@ -181,6 +194,8 @@ class ProductionCommandCenterRuntime:
         )
 
     async def _evaluator_loop(self) -> None:
+        """Poll alert conditions and spawn one isolated task for every new incident."""
+
         while True:
             await asyncio.sleep(self.settings.alert_evaluator_interval_seconds)
             try:
@@ -209,6 +224,8 @@ class ProductionCommandCenterRuntime:
                 continue
 
     async def _run_agent(self, incident_id: str) -> None:
+        """Run the Skill-guided, dynamically tooled loop until pause or terminal state."""
+
         run_started_at = utc_now()
         try:
             incident = await self.repository.incident(incident_id)
@@ -502,6 +519,8 @@ class ProductionCommandCenterRuntime:
     async def _pause_for_gateway(
         self, incident_id: str, tool_name: str, ask: GatewayAsk, *, started_at: datetime
     ) -> None:
+        """Persist Gateway ``ASK`` as a pure pause without executing the source tool."""
+
         pending = PendingApproval(
             serialized_request=ask.serialized_request,
             elicitation_id=ask.elicitation.elicitation_id,
@@ -542,6 +561,13 @@ class ProductionCommandCenterRuntime:
         ) / 1_000_000
 
     async def _retry_pending(self, incident_id: str, pending: PendingApproval) -> bool:
+        """Replay the exact paused request after external authorization.
+
+        The current completion path assumes the only policy-paused tool is
+        ``submit_work_order``. Generalizing policy to more tools requires tool-specific and
+        single-flight resume handling, tracked in the technical-debt register.
+        """
+
         incident = await self.repository.incident(incident_id)
         if not incident or incident.status != "waiting":
             return True

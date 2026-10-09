@@ -63,6 +63,8 @@ def ensure_source_app_permission(client: WorkspaceClient, app) -> bool:
 
 
 def deploy_skill(client: WorkspaceClient) -> dict[str, object]:
+    """Create the governed Skill if needed, upload all source files, and finalize it."""
+
     try:
         client.api_client.do("GET", f"/api/2.1/unity-catalog/skills/{SKILL_FQN}")
         created = False
@@ -99,6 +101,11 @@ def deploy_skill(client: WorkspaceClient) -> dict[str, object]:
 
 
 def ensure_connection(client: WorkspaceClient, app) -> tuple[object, bool]:
+    """Create the App-backed MCP source connection when absent.
+
+    Existing connection drift is not currently reconciled; see the technical-debt register.
+    """
+
     try:
         return client.connections.get(CONNECTION_FQN), False
     except NotFound:
@@ -135,6 +142,12 @@ def ensure_connection(client: WorkspaceClient, app) -> tuple[object, bool]:
 
 
 def ensure_service(client: WorkspaceClient, function_id: str) -> tuple[dict, bool]:
+    """Create the governed service and ASK policy when absent.
+
+    This helper is intentionally create-only today. A convergent update and post-deploy policy
+    probe are tracked as high-priority governance debt.
+    """
+
     try:
         service = client.api_client.do(
             "GET", f"/api/2.1/unity-catalog/mcp-services/{SERVICE_FQN}"
@@ -166,6 +179,8 @@ def ensure_service(client: WorkspaceClient, function_id: str) -> tuple[dict, boo
 
 
 def main() -> None:
+    """Deploy governance dependencies in their required dependency order."""
+
     client = WorkspaceClient(profile=PROFILE)
     app = client.apps.get(APP_NAME)
     if not app.url or not app.service_principal_id or not app.service_principal_client_id:

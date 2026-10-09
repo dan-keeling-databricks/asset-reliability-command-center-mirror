@@ -1,4 +1,17 @@
 # Databricks notebook source
+# MAGIC %md
+# MAGIC # Continuous pump telemetry producer
+# MAGIC
+# MAGIC This classic-compute job maintains a continuous eight-pump simulation, reads durable
+# MAGIC scenario commands from Lakebase, and publishes telemetry to Kafka. The Databricks App
+# MAGIC controls the scenario through Lakebase and never requires network access to the broker.
+# MAGIC
+# MAGIC **Reliability contract:** Kafka delivery is acknowledged before the producer heartbeat
+# MAGIC advances, event identifiers are deterministic, and a restarted job resumes beyond both
+# MAGIC persisted and wall-clock sequence floors.
+
+# COMMAND ----------
+
 """Continuous synthetic pump telemetry producer.
 
 This process deliberately runs on classic compute. It polls Lakebase for low-volume
@@ -22,6 +35,16 @@ from typing import Any
 import psycopg
 from databricks.sdk import WorkspaceClient
 from kafka import KafkaProducer
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Runtime configuration
+# MAGIC
+# MAGIC Widgets keep environment-specific endpoints and rates outside the simulation logic.
+# MAGIC Identifiers and rates are validated before any external connection is opened.
+
+# COMMAND ----------
 
 dbutils.widgets.text("kafka_bootstrap", "63.186.81.193:443")
 dbutils.widgets.text("kafka_topic", "asset-reliability-pump-telemetry")
@@ -47,9 +70,22 @@ if not re.fullmatch(r"[a-z_][a-z0-9_]*", LAKEBASE_SCHEMA):
 if RATE_HZ <= 0:
     raise ValueError("rate_hz must be positive")
 
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Fleet and simulation state
+# MAGIC
+# MAGIC Pump profiles define stable operating baselines. `SimulationState` carries the durable
+# MAGIC scenario identity and monotonically increasing sequence used to derive idempotent event
+# MAGIC identifiers. P-204 onset is optional because that excursion is presenter-controlled.
+
+# COMMAND ----------
+
 
 @dataclass(frozen=True)
 class PumpProfile:
+    """Stable operating baseline for one comparable pump."""
+
     pump_id: str
     flow_m3h: float
     pressure_bar: float
@@ -60,6 +96,8 @@ class PumpProfile:
 
 @dataclass
 class SimulationState:
+    """Mutable state needed to resume one deterministic scenario stream."""
+
     scenario_id: str
     started_monotonic: float
     sequence: int = 0
@@ -80,6 +118,18 @@ PUMPS = (
 NAMESPACE = uuid.UUID("39deea2a-8ef5-4fb9-94b6-5ce34c505855")
 PRODUCER_ID = f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
 workspace = WorkspaceClient()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Lakebase control plane
+# MAGIC
+# MAGIC These helpers mint short-lived database credentials, claim scenario commands with
+# MAGIC `FOR UPDATE SKIP LOCKED`, persist command outcomes, and publish producer health. Database
+# MAGIC commits are explicit so command ownership and heartbeat state have clear transaction
+# MAGIC boundaries.
+
+# COMMAND ----------
 
 
 def lakebase_connect() -> psycopg.Connection[Any]:
@@ -120,6 +170,8 @@ def active_scenario(conn: psycopg.Connection[Any]) -> dict[str, Any] | None:
 
 
 def claim_commands(conn: psycopg.Connection[Any]) -> list[dict[str, Any]]:
+    """Atomically claim pending commands so only one producer can apply them."""
+
     with conn.cursor() as cursor:
         cursor.execute(
             f"""
@@ -215,6 +267,18 @@ def seconds_since(timestamp: datetime | None) -> float | None:
         timestamp = timestamp.replace(tzinfo=UTC)
     return max(0.0, (datetime.now(UTC) - timestamp).total_seconds())
 
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Signal generation and restart recovery
+# MAGIC
+# MAGIC Normal transients on P-202 and P-207 deliberately cross the shared vibration threshold
+# MAGIC but decay. P-204 remains stable until commanded, then develops correlated vibration,
+# MAGIC temperature, current, flow, and pressure changes. Seeded noise and UUIDv5 identifiers
+# MAGIC make a `(scenario, sequence, pump)` sample reproducible and idempotent.
+
+# COMMAND ----------
+
 
 def next_sequence(conn: psycopg.Connection[Any], scenario_id: str) -> int:
     """Resume after the last persisted event when a continuous job restarts."""
@@ -261,6 +325,8 @@ def transient_shape(elapsed: float, duration: float) -> float:
 def telemetry_for(
     profile: PumpProfile, state: SimulationState, now_monotonic: float
 ) -> dict[str, Any]:
+    """Generate one reproducible, correlated telemetry envelope for a pump tick."""
+
     elapsed = now_monotonic - state.started_monotonic
     seed = f"{state.scenario_id}:{state.sequence}:{profile.pump_id}"
     noise = random.Random(seed)
@@ -328,6 +394,8 @@ def telemetry_for(
 def apply_command(
     conn: psycopg.Connection[Any], command: dict[str, Any], state: SimulationState | None
 ) -> SimulationState | None:
+    """Apply a durable scenario command to the producer's in-memory state."""
+
     command_type = command["command_type"]
     scenario_id = command["scenario_id"]
     if command_type == "restart_scenario":
@@ -354,6 +422,18 @@ def open_database_with_retry() -> psycopg.Connection[Any]:
         except Exception as exc:  # noqa: BLE001
             print(f"Lakebase connection not ready: {exc!r}; retrying in 5 seconds")
             time.sleep(5)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Continuous publishing loop
+# MAGIC
+# MAGIC Each tick first applies control commands, then publishes one sample per pump. `flush`
+# MAGIC makes the heartbeat represent broker-acknowledged delivery rather than records merely
+# MAGIC accepted into the client buffer. Recoverable control-plane failures reconnect to
+# MAGIC Lakebase; unrecoverable broker failures escape so the continuous Databricks job restarts.
+
+# COMMAND ----------
 
 
 database = open_database_with_retry()

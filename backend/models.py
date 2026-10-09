@@ -1,3 +1,5 @@
+"""Typed API, persistence, and runtime event contracts shared across adapters."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

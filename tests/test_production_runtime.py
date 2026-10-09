@@ -1,3 +1,5 @@
+"""Agent-loop tests for tool choice, rationales, approval pause/replay, and fallbacks."""
+
 import asyncio
 from datetime import UTC, datetime
 from types import SimpleNamespace

@@ -1,3 +1,5 @@
+"""Environment-backed configuration for local and deployed App runtimes."""
+
 from functools import lru_cache
 from typing import Literal
 
@@ -5,6 +7,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """Validated runtime settings populated from App resources and environment variables."""
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_adapter: Literal["local", "lakebase"] = "local"

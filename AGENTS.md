@@ -36,6 +36,12 @@ git worktree add ../asset-reliability-command-center-my-feature \
 - Never hardcode model, skill, MCP server, policy, or tool-call activity in the UI. Render only
   runtime-emitted events.
 - Unity Gateway is the sole approval authority. Do not simulate approval in application code.
+- Structure Databricks notebook-source files into focused code cells, each introduced by a
+  useful `%md` cell that explains its purpose, inputs, outputs, and important operational
+  invariants.
+- Give ordinary Python modules a clear module docstring and document non-obvious concurrency,
+  identity, recovery, data-integrity, and governance behavior. Do not add comments that merely
+  restate syntax.
 - Never commit secrets, OAuth tokens, generated credentials, `.env`, local databases, build
   output, Databricks state, or browser artifacts.
 
