@@ -22,6 +22,15 @@ variables:
     default: 63.186.81.193:443
   kafka_topic:
     default: asset-reliability-pump-telemetry
+  telemetry_pipeline_node_type:
+    description: Classic-compute worker type for governed telemetry ingestion.
+    default: i3.xlarge
+  app_access_group:
+    description: Existing workspace group allowed to query telemetry through Genie.
+    default: asset-reliability-command-center-operator
+  genie_parent_path:
+    description: Workspace folder in which the bundle manages the Genie space.
+    default: /Shared/asset-reliability-command-center
   lakebase_project_id:
     default: asset-reliability-command-center
   lakebase_endpoint_path:
@@ -86,6 +95,20 @@ resources:
             file:
               path: ./sql/setup_demo.sql
             warehouse_id: ${var.warehouse_id}
+
+    setup_telemetry_access:
+      name: Asset Reliability — grant curated telemetry access
+      description: Idempotently grants the existing App group access only to the Genie view.
+      tasks:
+        - task_key: grant_curated_view
+          sql_task:
+            file:
+              path: ./sql/grant_telemetry_history.sql
+            warehouse_id: ${var.warehouse_id}
+            parameters:
+              catalog_name: ${var.catalog}
+              schema_name: ${var.schema}
+              principal_name: ${var.app_access_group}
 
     telemetry_producer:
       name: Asset Reliability — continuous pump telemetry producer
@@ -168,6 +191,48 @@ resources:
               trigger_interval: 5 minutes
               diagnostic_seconds: "0"
 
+  pipelines:
+    governed_telemetry_history:
+      name: Asset Reliability — governed telemetry history
+      catalog: ${var.catalog}
+      schema: ${var.schema}
+      continuous: true
+      development: false
+      edition: ADVANCED
+      channel: CURRENT
+      serverless: false
+      photon: true
+      cascade_on_destroy: false
+      libraries:
+        - notebook:
+            path: ./src/pipelines/governed_telemetry_history.sql
+      configuration:
+        kafka_bootstrap: ${var.kafka_bootstrap}
+        kafka_topic: ${var.kafka_topic}
+        kafka_starting_offsets: latest
+      clusters:
+        - label: default
+          node_type_id: ${var.telemetry_pipeline_node_type}
+          num_workers: 1
+          aws_attributes:
+            availability: ON_DEMAND
+          custom_tags:
+            Workload: asset-reliability-governed-history
+      permissions:
+        - level: CAN_VIEW
+          group_name: ${var.app_access_group}
+
+  genie_spaces:
+    fleet_telemetry_analyst:
+      title: Asset Reliability — Fleet Telemetry Analyst
+      description: Natural-language analysis of continuous governed pump telemetry history.
+      warehouse_id: ${var.warehouse_id}
+      parent_path: ${var.genie_parent_path}
+      file_path: ./genie/fleet_telemetry_analyst.geniespace.json
+      permissions:
+        - level: CAN_RUN
+          group_name: ${var.app_access_group}
+
   apps:
     command_center:
       name: asset-reliability-center
@@ -176,6 +241,7 @@ resources:
       forward_user_access_token: true
       user_api_scopes:
         - ai-gateway
+        - dashboards.genie
       resources:
         - name: lakebase
           postgres:
@@ -194,6 +260,11 @@ resources:
           serving_endpoint:
             name: ${var.fast_model}
             permission: CAN_QUERY
+        - name: fleet-telemetry-genie
+          genie_space:
+            name: fleet-telemetry-genie
+            space_id: ${resources.genie_spaces.fleet_telemetry_analyst.id}
+            permission: CAN_RUN
 
 targets:
   dev:
