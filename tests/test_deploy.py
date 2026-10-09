@@ -46,6 +46,13 @@ def test_deployment_steps_are_explicit_and_dependency_ordered() -> None:
             assert "--profile" in step.command
             assert "explicit-profile" in step.command
     assert steps[3].environment == {"DATABRICKS_CONFIG_PROFILE": "explicit-profile"}
+    assert steps[3].command == [
+        "uv",
+        "run",
+        "python",
+        "-m",
+        "scripts.deploy_governance",
+    ]
     assert "--app-service-principal-client-id" in steps[0].command
     assert "existing-app-sp" in steps[0].command
     assert "--timeout-seconds" in steps[0].command

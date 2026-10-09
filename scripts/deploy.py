@@ -432,7 +432,7 @@ def deployment_steps(inputs: DeploymentInputs) -> list[Step]:
         ),
         Step(
             "Reconcile the Skill, MCP source, service, selectors, and ASK policy",
-            ["uv", "run", "python", "scripts/deploy_governance.py"],
+            ["uv", "run", "python", "-m", "scripts.deploy_governance"],
             environment={"DATABRICKS_CONFIG_PROFILE": inputs.profile},
         ),
     ]
