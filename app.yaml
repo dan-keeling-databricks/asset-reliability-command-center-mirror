@@ -14,6 +14,10 @@ env:
     valueFrom: primary-model
   - name: FAST_MODEL_ENDPOINT
     valueFrom: fast-model
+  - name: DATABRICKS_GENIE_SPACE_ID
+    valueFrom: fleet-telemetry-genie
+  - name: GENIE_SOURCE_LABEL
+    value: Fleet telemetry analyst
   - name: GOVERNED_MCP_ENDPOINT
     value: https://fevm-classic-stable-realtime-demos.cloud.databricks.com/ai-gateway/mcp-services/classic_stable_realtime_demos_catalog.asset_reliability_command_center.asset_reliability_mcp
   - name: GOVERNED_SKILL_ENDPOINT
@@ -22,8 +26,6 @@ env:
     value: skill_classic_stable_realtime_demos_catalog.asset_reliability_command_center.asset-reliability-response
   - name: LAKEBASE_SCHEMA
     value: asset_reliability
-  - name: LAKEBASE_JOB_PRINCIPAL
-    value: dan.keeling@databricks.com
   - name: SSE_COALESCE_SECONDS
     value: "0.05"
   - name: TELEMETRY_RETENTION_SECONDS

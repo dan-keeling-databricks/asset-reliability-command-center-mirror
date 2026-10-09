@@ -1,0 +1,167 @@
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [
+      {
+        "id": "10000000000000000000000000000001",
+        "question": [
+          "Which pumps had the highest average vibration in the last 15 minutes?"
+        ]
+      },
+      {
+        "id": "10000000000000000000000000000002",
+        "question": [
+          "Show vibration and bearing temperature for P-204 over the last 10 minutes."
+        ]
+      },
+      {
+        "id": "10000000000000000000000000000003",
+        "question": [
+          "Compare average flow, pressure, vibration, temperature, and current by pump for the last hour."
+        ]
+      }
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      {
+        "identifier": "classic_stable_realtime_demos_catalog.asset_reliability_command_center.pump_telemetry_history",
+        "column_configs": [
+          {
+            "column_name": "bearing_temperature_c",
+            "description": [
+              "Bearing temperature measured in degrees Celsius."
+            ],
+            "synonyms": [
+              "bearing temperature",
+              "temperature"
+            ]
+          },
+          {
+            "column_name": "discharge_pressure_bar",
+            "description": [
+              "Pump discharge pressure measured in bar."
+            ],
+            "synonyms": [
+              "discharge pressure",
+              "pressure"
+            ]
+          },
+          {
+            "column_name": "event_time",
+            "description": [
+              "UTC timestamp at which the telemetry measurement was generated."
+            ],
+            "synonyms": [
+              "measurement time",
+              "timestamp"
+            ]
+          },
+          {
+            "column_name": "flow_m3h",
+            "description": [
+              "Volumetric flow measured in cubic metres per hour."
+            ],
+            "synonyms": [
+              "flow",
+              "flow rate"
+            ]
+          },
+          {
+            "column_name": "ingested_at",
+            "description": [
+              "UTC timestamp at which the governed pipeline ingested the measurement."
+            ],
+            "synonyms": [
+              "ingestion time"
+            ]
+          },
+          {
+            "column_name": "motor_current_a",
+            "description": [
+              "Motor current measured in amperes."
+            ],
+            "synonyms": [
+              "current",
+              "motor current"
+            ]
+          },
+          {
+            "column_name": "pump_id",
+            "description": [
+              "Stable fleet asset identifier such as P-204."
+            ],
+            "synonyms": [
+              "asset",
+              "pump"
+            ],
+            "enable_entity_matching": true,
+            "get_example_values": true
+          },
+          {
+            "column_name": "source",
+            "description": [
+              "Identifier of the synthetic telemetry producer."
+            ],
+            "synonyms": [
+              "data source"
+            ]
+          },
+          {
+            "column_name": "vibration_mm_s",
+            "description": [
+              "Bearing vibration velocity measured in millimetres per second."
+            ],
+            "synonyms": [
+              "bearing vibration",
+              "vibration"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "instructions": {
+    "example_question_sqls": [
+      {
+        "id": "20000000000000000000000000000001",
+        "question": [
+          "Which pumps had the highest average vibration in the last 15 minutes?"
+        ],
+        "sql": [
+          "SELECT pump_id, AVG(vibration_mm_s) AS average_vibration_mm_s FROM classic_stable_realtime_demos_catalog.asset_reliability_command_center.pump_telemetry_history WHERE event_time >= current_timestamp() - INTERVAL 15 MINUTES GROUP BY pump_id ORDER BY average_vibration_mm_s DESC"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000002",
+        "question": [
+          "Show vibration and bearing temperature for P-204 over the last 10 minutes."
+        ],
+        "sql": [
+          "SELECT event_time, vibration_mm_s, bearing_temperature_c FROM classic_stable_realtime_demos_catalog.asset_reliability_command_center.pump_telemetry_history WHERE pump_id = 'P-204' AND event_time >= current_timestamp() - INTERVAL 10 MINUTES ORDER BY event_time"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000003",
+        "question": [
+          "Compare average operating measurements by pump for the last hour."
+        ],
+        "sql": [
+          "SELECT pump_id, AVG(flow_m3h) AS average_flow_m3h, AVG(discharge_pressure_bar) AS average_discharge_pressure_bar, AVG(vibration_mm_s) AS average_vibration_mm_s, AVG(bearing_temperature_c) AS average_bearing_temperature_c, AVG(motor_current_a) AS average_motor_current_a FROM classic_stable_realtime_demos_catalog.asset_reliability_command_center.pump_telemetry_history WHERE event_time >= current_timestamp() - INTERVAL 1 HOUR GROUP BY pump_id ORDER BY pump_id"
+        ]
+      }
+    ],
+    "text_instructions": [
+      {
+        "id": "30000000000000000000000000000001",
+        "content": [
+          "Use only pump_telemetry_history. It is a continuous chronological stream of validated synthetic fleet measurements.",
+          "Interpret event_time and ingested_at as UTC timestamps. Always state the requested or inferred time range.",
+          "Use the units encoded in column names and descriptions: flow in cubic metres per hour, pressure in bar, vibration in millimetres per second, temperature in degrees Celsius, and current in amperes.",
+          "Do not claim operational outcomes, classifications, root causes, or failure probabilities from telemetry alone. Describe observed measurements and trends, and make uncertainty explicit.",
+          "For ranking questions, aggregate by pump_id and return the measured value and units. For time-series questions, order results by event_time."
+        ]
+      }
+    ]
+  }
+}
