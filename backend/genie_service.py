@@ -154,7 +154,16 @@ class DatabricksGenieClient:
     def _genie(self, token: str):
         # The returned SDK object lives only for the duration of the enclosing platform call.
         # Neither the token nor the client is placed in shared application state.
-        return self._workspace_client_factory(host=self._host, token=token).genie
+        # Databricks Apps also injects the App service principal's OAuth client credentials.
+        # Selecting the SDK's bearer-token strategy explicitly prevents unified auth from
+        # combining those machine credentials with the forwarded user's OBO token.  Despite
+        # the SDK strategy name, ``pat`` here only controls header construction; the supplied
+        # value is the request-scoped OBO access token and is never persisted.
+        return self._workspace_client_factory(
+            host=self._host,
+            token=token,
+            auth_type="pat",
+        ).genie
 
     def start(self, *, token: str, space_id: str, question: str) -> SubmittedMessage:
         wait = self._genie(token).start_conversation(

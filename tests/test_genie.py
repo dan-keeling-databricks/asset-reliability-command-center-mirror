@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.genie_router import create_genie_router
-from backend.genie_service import SubmittedMessage
+from backend.genie_service import DatabricksGenieClient, SubmittedMessage
 
 
 class Status(Enum):
@@ -131,6 +131,31 @@ def user_headers(email: str, token: str = "obo-token") -> dict[str, str]:
         "X-Forwarded-Preferred-Username": email.split("@", 1)[0].title(),
         "X-Forwarded-Access-Token": token,
     }
+
+
+def test_genie_sdk_client_selects_only_forwarded_token_auth() -> None:
+    """App OAuth environment credentials must not compete with the user's OBO token."""
+
+    calls: list[dict[str, str]] = []
+    genie_api = object()
+
+    def workspace_client_factory(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(genie=genie_api)
+
+    client = DatabricksGenieClient(
+        "https://example.cloud.databricks.com",
+        workspace_client_factory=workspace_client_factory,
+    )
+
+    assert client._genie("request-scoped-obo-token") is genie_api
+    assert calls == [
+        {
+            "host": "https://example.cloud.databricks.com",
+            "token": "request-scoped-obo-token",
+            "auth_type": "pat",
+        }
+    ]
 
 
 def test_genie_requires_obo_token_and_reports_signed_in_identity() -> None:
