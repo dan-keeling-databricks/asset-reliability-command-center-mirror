@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from backend.genie_router import create_genie_router
 from backend.identity import is_expected_service_principal
 from backend.lakebase_repository import LakebaseCommandCenterRepository, lakebase_conninfo
 from backend.mcp import AssetReliabilityMCP
@@ -92,6 +93,19 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # The bundle injects the managed Genie space ID only in deployed mode. Keeping the
+    # integration conditional preserves the dependency-free local simulator while ensuring
+    # every deployed Genie API call uses the request's forwarded OBO token.
+    genie_space_id = os.getenv("DATABRICKS_GENIE_SPACE_ID")
+    if genie_space_id and settings.databricks_host:
+        app.include_router(
+            create_genie_router(
+                space_id=genie_space_id,
+                host=settings.databricks_host,
+                source_label=os.getenv("GENIE_SOURCE_LABEL"),
+            )
+        )
 
     def app_user(email: str | None, name: str | None) -> AppUser:
         if not email:

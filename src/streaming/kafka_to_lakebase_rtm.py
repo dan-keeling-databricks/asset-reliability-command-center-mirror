@@ -43,9 +43,10 @@ from pyspark.sql.types import (
 # MAGIC %md
 # MAGIC ## Declare deployment parameters
 # MAGIC
-# MAGIC These widgets form the notebook's deployment contract. The Asset Bundle supplies environment-
-# MAGIC specific values, while defaults keep an interactive diagnostic run understandable. No secret
-# MAGIC credentials are embedded: Kafka is reachable through the workspace network and the Lakebase
+# MAGIC These widgets form the notebook's deployment contract. The Asset Bundle supplies
+# MAGIC environment-specific values, while defaults keep an interactive diagnostic run
+# MAGIC understandable. No secret credentials are embedded: Kafka is reachable through the
+# MAGIC workspace network and the Lakebase
 # MAGIC sink obtains its credential from the Databricks runtime.
 
 # COMMAND ----------
@@ -173,7 +174,8 @@ message_schema = StructType(
 # MAGIC ## Subscribe to the Kafka telemetry topic
 # MAGIC
 # MAGIC The source begins at the configured offsets and keeps Kafka partition, offset, and broker
-# MAGIC timestamp for traceability. `failOnDataLoss=false` is an intentional synthetic-demo tradeoff:
+# MAGIC timestamp for traceability. `failOnDataLoss=false` is an intentional synthetic-demo
+# MAGIC tradeoff:
 # MAGIC a broker retention gap must not prevent the live demo from resuming. The governed Lakeflow
 # MAGIC pipeline provides separate quality and quarantine visibility for historical analysis.
 
@@ -224,7 +226,8 @@ telemetry = (
 # MAGIC ## Start the native Lakebase sink
 # MAGIC
 # MAGIC The PostgreSQL sink uses update mode, a persistent checkpoint, small sink batches, and a
-# MAGIC Real-Time Mode trigger. `event_id` is the Lakebase primary key, so replayed Kafka records are
+# MAGIC Real-Time Mode trigger. `event_id` is the Lakebase primary key, so replayed Kafka records
+# MAGIC are
 # MAGIC idempotent at the destination. The returned query handle is the sole lifecycle authority for
 # MAGIC both continuous production and bounded diagnostics.
 
@@ -250,9 +253,10 @@ print(f"RTM query started: {query.id}")
 # MAGIC %md
 # MAGIC ## Run continuously or return bounded diagnostics
 # MAGIC
-# MAGIC Production sets `diagnostic_seconds` to zero and waits for termination so the Lakeflow Job can
-# MAGIC supervise failures and replacement runs. A positive diagnostic duration stops the query and
-# MAGIC returns recent structured progress, including latency and sink-row metrics, as notebook output
+# MAGIC Production sets `diagnostic_seconds` to zero and waits for termination so the Lakeflow Job
+# MAGIC can supervise failures and replacement runs. A positive diagnostic duration stops the query
+# MAGIC and returns recent structured progress, including latency and sink-row metrics, as notebook
+# MAGIC output
 # MAGIC suitable for text-based acceptance evidence.
 
 # COMMAND ----------

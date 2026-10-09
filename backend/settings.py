@@ -23,8 +23,7 @@ class Settings(BaseSettings):
     telemetry_retention_interval_seconds: float = 300.0
     telemetry_retention_batch_size: int = 1_000
     databricks_host: str | None = None
-    primary_model_endpoint: str = "databricks-claude-sonnet-4-5"
-    fast_model_endpoint: str = "databricks-gpt-5-1"
+    model_endpoint: str = "databricks-claude-sonnet-4-5"
     governed_mcp_endpoint: str | None = None
     governed_skill_endpoint: str | None = None
     governed_skill_tool: str | None = None

@@ -10,10 +10,8 @@ env:
     value: lakebase
   - name: LAKEBASE_ENDPOINT
     valueFrom: lakebase
-  - name: PRIMARY_MODEL_ENDPOINT
-    valueFrom: primary-model
-  - name: FAST_MODEL_ENDPOINT
-    valueFrom: fast-model
+  - name: MODEL_ENDPOINT
+    valueFrom: model
   - name: DATABRICKS_GENIE_SPACE_ID
     valueFrom: fleet-telemetry-genie
   - name: GENIE_SOURCE_LABEL

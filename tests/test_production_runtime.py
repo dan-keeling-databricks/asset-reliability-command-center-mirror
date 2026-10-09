@@ -19,6 +19,13 @@ from backend.production_runtime import (
     _valid_decision_rationale,
     _valid_terminal_response,
 )
+from backend.settings import Settings
+
+
+def test_settings_default_to_one_sonnet_endpoint() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.model_endpoint == "databricks-claude-sonnet-4-5"
 
 
 @pytest.mark.asyncio
@@ -50,8 +57,7 @@ async def test_unusable_rationale_falls_back_and_selected_tool_executes(
     runtime.settings = SimpleNamespace(
         governed_skill_tool="reliability-investigation",
         governed_mcp_endpoint="https://gateway.example/mcp",
-        fast_model_endpoint="fast-model",
-        primary_model_endpoint="primary-model",
+        model_endpoint="agent-model",
         model_input_cost_per_million=1.0,
         model_output_cost_per_million=1.0,
     )
@@ -265,7 +271,7 @@ async def test_successful_replay_records_exact_request_receipt_before_completion
 @pytest.mark.asyncio
 async def test_post_approval_model_failure_uses_one_strict_fallback() -> None:
     runtime = ProductionCommandCenterRuntime.__new__(ProductionCommandCenterRuntime)
-    runtime.settings = SimpleNamespace(primary_model_endpoint="primary-model")
+    runtime.settings = SimpleNamespace(model_endpoint="agent-model")
     runtime.model = SimpleNamespace(turn=AsyncMock(side_effect=RuntimeError("model unavailable")))
     runtime.repository = SimpleNamespace(append_activity=AsyncMock())
     incident = IncidentDetail(
@@ -300,7 +306,7 @@ def terminal_content(action: str = "Maintenance scheduled.") -> str:
 def post_approval_runtime(*turns: ModelTurn) -> ProductionCommandCenterRuntime:
     runtime = ProductionCommandCenterRuntime.__new__(ProductionCommandCenterRuntime)
     runtime.settings = SimpleNamespace(
-        primary_model_endpoint="primary-model",
+        model_endpoint="agent-model",
         model_input_cost_per_million=1.0,
         model_output_cost_per_million=1.0,
     )
@@ -375,7 +381,7 @@ async def test_corrected_terminal_preserves_both_real_model_outputs() -> None:
 async def test_follow_up_persists_exact_model_output_and_tokens() -> None:
     runtime = ProductionCommandCenterRuntime.__new__(ProductionCommandCenterRuntime)
     runtime.settings = SimpleNamespace(
-        primary_model_endpoint="primary-model",
+        model_endpoint="agent-model",
         model_input_cost_per_million=1.0,
         model_output_cost_per_million=1.0,
     )
