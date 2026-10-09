@@ -72,6 +72,13 @@ through `/api/build-info`.
 now describe the SQL pipeline, telemetry-only OBO Genie, single model, strengthened governance,
 existing group, and repository-first deployment path.
 
+### Bundle root used as the App snapshot
+
+**Resolved.** The bundle-managed Genie definition materializes as a special workspace node that
+Databricks Apps cannot import. Deployment now stages an allowlisted runtime tree under
+`.artifacts/app`, and the App snapshots only that directory. Tests prove that Genie definitions,
+job/pipeline source, development assets, and stale files do not enter the artifact.
+
 ## Accepted design decisions
 
 These decisions were explicitly reviewed and should not be “fixed” without revisiting the demo

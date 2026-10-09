@@ -43,6 +43,7 @@ variables:
 
 sync:
   include:
+    - .artifacts/app/**
     - backend/**
     - frontend/dist/**
     - skills/**
@@ -234,7 +235,9 @@ resources:
     command_center:
       name: asset-reliability-center
       description: Autonomous and governed asset reliability command center
-      source_code_path: .
+      # Snapshot only the generated runtime artifact. The bundle root also contains the managed
+      # Genie workspace node, which is not a supported Databricks Apps snapshot node type.
+      source_code_path: ./.artifacts/app
       forward_user_access_token: true
       user_api_scopes:
         - ai-gateway

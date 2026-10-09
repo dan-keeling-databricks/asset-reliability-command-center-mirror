@@ -12,6 +12,7 @@ from scripts.deploy import (
     DeploymentInputs,
     assert_frontend_fresh,
     deployment_steps,
+    stage_app_source,
     write_build_info,
 )
 
@@ -70,3 +71,68 @@ def test_frontend_freshness_rejects_source_newer_than_build(tmp_path: Path) -> N
     source.write_text("new source")
     with pytest.raises(RuntimeError, match="older than frontend source"):
         assert_frontend_fresh(tmp_path)
+
+
+def _write_minimal_runtime(root: Path) -> None:
+    """Create only the files that a deployed FastAPI/React App reads at runtime."""
+
+    files = {
+        "backend/main.py": "app = object()\n",
+        "backend/__pycache__/main.pyc": "cache",
+        "backend/.env": "SECRET=must-not-be-staged\n",
+        "frontend/dist/index.html": "<main>command center</main>\n",
+        "frontend/dist/assets/index.js": "export {};\n",
+        "sql/lakebase_schema.sql": "SELECT 1;\n",
+        "app.yaml": "command: [uvicorn, backend.main:app]\n",
+        "pyproject.toml": "[project]\nname='test'\nversion='0.0.0'\n",
+        "uv.lock": "version = 1\n",
+        "requirements.txt": "fastapi==1.0.0\n",
+        ".build-info.json": '{"git_commit":"abc123"}\n',
+        "genie/fleet_telemetry_analyst.geniespace.json": "{}\n",
+        "src/streaming/job.py": "raise SystemExit\n",
+        "tests/test_example.py": "def test_example(): pass\n",
+    }
+    for relative, contents in files.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(contents)
+
+
+def test_app_staging_contains_runtime_allowlist_and_excludes_bundle_resources(
+    tmp_path: Path,
+) -> None:
+    _write_minimal_runtime(tmp_path)
+
+    staged = stage_app_source(tmp_path)
+
+    assert (staged / "backend/main.py").is_file()
+    assert (staged / "frontend/dist/index.html").is_file()
+    assert (staged / "sql/lakebase_schema.sql").is_file()
+    assert json.loads((staged / ".build-info.json").read_text()) == {
+        "git_commit": "abc123"
+    }
+    assert not (staged / "backend/__pycache__").exists()
+    assert not (staged / "backend/.env").exists()
+    assert not (staged / "genie").exists()
+    assert not (staged / "src").exists()
+    assert not (staged / "tests").exists()
+    assert not list(staged.rglob("*.geniespace.json"))
+
+
+def test_app_staging_removes_stale_files_before_rebuild(tmp_path: Path) -> None:
+    _write_minimal_runtime(tmp_path)
+    staged = stage_app_source(tmp_path)
+    stale = staged / "stale-secret.env"
+    stale.write_text("must not survive\n")
+
+    stage_app_source(tmp_path)
+
+    assert not stale.exists()
+
+
+def test_bundle_uses_dedicated_app_snapshot_without_moving_genie_definition() -> None:
+    bundle = (Path(__file__).resolve().parents[1] / "databricks.yml").read_text()
+
+    assert "source_code_path: ./.artifacts/app" in bundle
+    assert "file_path: ./genie/fleet_telemetry_analyst.geniespace.json" in bundle
+    assert "- .artifacts/app/**" in bundle

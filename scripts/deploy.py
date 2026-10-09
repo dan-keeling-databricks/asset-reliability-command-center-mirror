@@ -16,6 +16,7 @@ import argparse
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -25,6 +26,34 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 BUILD_INFO = ROOT / ".build-info.json"
 MINIMUM_CLI_VERSION = (0, 250, 0)
+
+# The App snapshot is intentionally smaller than the bundle.  In particular, the bundle root
+# contains a managed Genie workspace node that the Databricks Apps snapshot importer cannot
+# deserialize.  Keep this allowlist aligned with actual runtime imports and file reads.
+APP_RUNTIME_DIRECTORIES = (
+    Path("backend"),
+    Path("frontend/dist"),
+)
+APP_RUNTIME_FILES = (
+    Path("sql/lakebase_schema.sql"),
+    Path("app.yaml"),
+    Path("pyproject.toml"),
+    Path("uv.lock"),
+    Path("requirements.txt"),
+    Path(".build-info.json"),
+)
+APP_IGNORED_NAMES = {".DS_Store", ".databrickscfg", ".env", "__pycache__"}
+APP_IGNORED_SUFFIXES = {".pyc", ".pyo"}
+APP_FORBIDDEN_TOP_LEVEL = {
+    ".databricks",
+    ".git",
+    ".venv",
+    "docs",
+    "genie",
+    "scripts",
+    "src",
+    "tests",
+}
 
 
 @dataclass(frozen=True)
@@ -152,6 +181,77 @@ def write_build_info(commit: str, path: Path = BUILD_INFO) -> None:
         raise RuntimeError(f"Unable to verify generated build metadata at {path}")
 
 
+def _ignored_app_files(_directory: str, names: list[str]) -> set[str]:
+    """Exclude interpreter caches and local filesystem metadata from the App artifact."""
+
+    return {
+        name
+        for name in names
+        if name in APP_IGNORED_NAMES or Path(name).suffix in APP_IGNORED_SUFFIXES
+    }
+
+
+def stage_app_source(
+    root: Path = ROOT,
+    destination: Path | None = None,
+) -> Path:
+    """Create a deterministic, runtime-only source tree for the Databricks App snapshot.
+
+    Bundle resources such as Genie spaces, pipeline notebooks, and job notebooks remain rooted in
+    the repository and are deployed independently.  The App is snapshotted only from this staged
+    allowlist, preventing unsupported special workspace nodes and development files from entering
+    the App import.
+    """
+
+    root = root.resolve()
+    destination = (destination or root / ".artifacts" / "app").resolve()
+    if destination == root or root not in destination.parents:
+        raise RuntimeError(f"App staging destination must be below {root}: {destination}")
+
+    required = [*(root / path for path in APP_RUNTIME_DIRECTORIES)]
+    required.extend(root / path for path in APP_RUNTIME_FILES)
+    missing = [str(path.relative_to(root)) for path in required if not path.exists()]
+    if missing:
+        raise RuntimeError("App runtime inputs are missing: " + ", ".join(missing))
+
+    for source in required:
+        if source.is_symlink() or any(path.is_symlink() for path in source.rglob("*")):
+            raise RuntimeError(f"App runtime input contains a symlink: {source}")
+
+    if destination.is_symlink():
+        raise RuntimeError(f"Refusing to replace symlinked App staging directory: {destination}")
+    if destination.exists():
+        shutil.rmtree(destination)
+    destination.mkdir(parents=True)
+
+    for relative in APP_RUNTIME_DIRECTORIES:
+        shutil.copytree(
+            root / relative,
+            destination / relative,
+            ignore=_ignored_app_files,
+        )
+    for relative in APP_RUNTIME_FILES:
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(root / relative, target)
+
+    staged_top_level = {path.name for path in destination.iterdir()}
+    forbidden = sorted(staged_top_level & APP_FORBIDDEN_TOP_LEVEL)
+    genie_definitions = sorted(destination.rglob("*.geniespace.json"))
+    ignored_residue = sorted(
+        path
+        for path in destination.rglob("*")
+        if path.name in APP_IGNORED_NAMES or path.suffix in APP_IGNORED_SUFFIXES
+    )
+    if forbidden or genie_definitions or ignored_residue:
+        raise RuntimeError(
+            "Unsafe files entered the App staging directory: "
+            f"top_level={forbidden}, genie={genie_definitions}, ignored={ignored_residue}"
+        )
+
+    return destination
+
+
 def assert_cli_version(runner: Runner) -> None:
     """Enforce the repository's minimum supported Databricks CLI version."""
 
@@ -256,6 +356,8 @@ def run_quality_gate(runner: Runner, inputs: DeploymentInputs) -> None:
         runner.run(command)
     assert_requirements_current(runner)
     assert_frontend_fresh()
+    staged = stage_app_source()
+    print(f"Staged runtime-only App source at {staged.relative_to(ROOT)}", flush=True)
     runner.run(
         [
             "databricks",

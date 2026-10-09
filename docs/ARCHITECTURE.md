@@ -166,8 +166,10 @@ Operational telemetry is retained for 24 hours. Batched, index-backed cleanup is
 cannot block ingestion. Unity Catalog history is independent and is not cleared by App restart.
 
 The generated root `.build-info.json` records the clean Git commit included in a deployment; the
-App exposes it through `/api/build-info`. The file is ignored by Git but included in the App
-snapshot. Deployment is repository-first and manual through `scripts/deploy.py`.
+App exposes it through `/api/build-info`. Deployment stages this file with only the App's runtime
+Python, compiled frontend, Lakebase migration, and dependency manifests under `.artifacts/app`.
+The App snapshot is rooted there so managed Genie workspace nodes and non-runtime bundle assets
+cannot enter the snapshot. Deployment is repository-first and manual through `scripts/deploy.py`.
 
 ## Repository map
 
@@ -184,3 +186,4 @@ snapshot. Deployment is repository-first and manual through `scripts/deploy.py`.
 | `scripts/` | Checked deployment and idempotent data/governance helpers |
 | `tests/` | API, runtime, governance, data-plane, concurrency, and deployment contracts |
 | `docs/` | Architecture, deployment, evidence, and technical-debt records |
+| `.artifacts/app/` | Ignored, reproducibly generated runtime-only App snapshot source |
