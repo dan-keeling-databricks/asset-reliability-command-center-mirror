@@ -8,6 +8,7 @@ stops immediately when Gateway returns ``ASK``. Approval replay uses the exact p
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 from collections.abc import Coroutine
@@ -107,15 +108,23 @@ class ProductionCommandCenterRuntime:
         return True
 
     async def restart(self) -> str:
-        """Create a fresh scenario and clear process-local operator identity.
+        """Quiesce the old scenario before atomically creating its replacement."""
 
-        Unlike operator handover, this path does not yet cancel old incident tasks. That known
-        lifecycle gap is recorded as high-priority technical debt rather than hidden here.
-        """
+        async with self._operator_change_lock:
+            await self._cancel_active_runs()
+            self.identities.clear()
+            self._identity_scenario_id = None
+            return await self.repository.restart_scenario(self._last_subject)
 
-        self.identities.clear()
-        self._identity_scenario_id = None
-        return await self.repository.restart_scenario(self._last_subject)
+    async def _cancel_active_runs(self) -> None:
+        """Cancel and await every incident task so it cannot outlive its scenario."""
+
+        tasks = list(self._run_tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._run_tasks.clear()
 
     async def trigger_excursion(self) -> str:
         snapshot = await self.repository.snapshot()
@@ -134,23 +143,28 @@ class ProductionCommandCenterRuntime:
             scenario_id = await self.repository.handover_operator(
                 expected_version, new_operator_email, initiated_by
             )
-            for task in list(self._run_tasks):
-                task.cancel()
-            if self._run_tasks:
-                await asyncio.gather(*self._run_tasks, return_exceptions=True)
-            self._run_tasks.clear()
+            await self._cancel_active_runs()
             self.identities.clear()
             self._identity_scenario_id = None
             self.bind_operator_identity(scenario_id, new_operator_email)
             return scenario_id
 
     async def approve(self, incident_id: str) -> None:
-        incident = await self.repository.incident(incident_id)
-        if not incident or not incident.pending_approval:
-            raise ValueError("Incident is not waiting for Gateway approval")
-        completed = await self._retry_pending(incident_id, incident.pending_approval)
-        if not completed:
-            raise ValueError("Unity Gateway approval is still pending")
+        # Approval replay is not an agent background task, so it shares the lifecycle lock
+        # with restart/handover to prevent an in-flight write crossing a scenario boundary.
+        async with self._operator_change_lock:
+            incident = await self.repository.incident(incident_id)
+            if not incident or not incident.pending_approval:
+                raise ValueError("Incident is not waiting for Gateway approval")
+            identity = self.identities.get(incident.scenario_id)
+            approving_subject = (
+                identity.subject if identity and identity.subject else self._last_subject
+            ) or "authenticated-operator"
+            completed = await self._retry_pending(
+                incident_id, incident.pending_approval, approving_subject
+            )
+            if not completed:
+                raise ValueError("Unity Gateway approval is still pending")
 
     async def follow_up(self, incident_id: str, message: str) -> None:
         incident = await self.repository.incident(incident_id)
@@ -199,6 +213,9 @@ class ProductionCommandCenterRuntime:
         while True:
             await asyncio.sleep(self.settings.alert_evaluator_interval_seconds)
             try:
+                await self.repository.record_component_heartbeat(
+                    "alert-evaluator", {"scenario_id": self._identity_scenario_id}
+                )
                 scenario_id = self._identity_scenario_id
                 if not scenario_id or not self.identities.get(scenario_id):
                     continue
@@ -560,13 +577,10 @@ class ProductionCommandCenterRuntime:
             + output_tokens * self.settings.model_output_cost_per_million
         ) / 1_000_000
 
-    async def _retry_pending(self, incident_id: str, pending: PendingApproval) -> bool:
-        """Replay the exact paused request after external authorization.
-
-        The current completion path assumes the only policy-paused tool is
-        ``submit_work_order``. Generalizing policy to more tools requires tool-specific and
-        single-flight resume handling, tracked in the technical-debt register.
-        """
+    async def _retry_pending(
+        self, incident_id: str, pending: PendingApproval, approving_subject: str
+    ) -> bool:
+        """Single-flight replay of the exact paused request after Gateway authorization."""
 
         incident = await self.repository.incident(incident_id)
         if not incident or incident.status != "waiting":
@@ -574,12 +588,39 @@ class ProductionCommandCenterRuntime:
         identity = self.identities.get(incident.scenario_id)
         if not identity:
             return False
+        claimed = await self.repository.claim_pending_approval(
+            incident_id, approving_subject
+        )
+        if not claimed:
+            latest = await self.repository.incident(incident_id)
+            return bool(latest and latest.status == "completed")
+        pending = claimed
         try:
             replay_started_at = utc_now()
             result = await self.gateway.replay(pending.serialized_request, identity.token)
         except GatewayAsk:
+            await self.repository.release_pending_approval(incident_id)
             return False
+        except Exception:
+            await self.repository.release_pending_approval(incident_id)
+            raise
         replay_completed_at = utc_now()
+        data = _structured(result)
+        work_order_id = str(data.get("work_order_id", "Work order"))
+        receipt = {
+            "elicitation_id": pending.elicitation_id,
+            "request_sha256": hashlib.sha256(
+                pending.serialized_request.encode("utf-8")
+            ).hexdigest(),
+            "approving_subject": approving_subject,
+            "decision": "ALLOW",
+            "requested_at": pending.created_at.isoformat(),
+            "decided_at": replay_started_at.isoformat(),
+            "completed_at": replay_completed_at.isoformat(),
+        }
+        await self.repository.record_governance_receipt(
+            incident_id, work_order_id, receipt
+        )
         await self._complete_governed_action(
             incident_id,
             result,
