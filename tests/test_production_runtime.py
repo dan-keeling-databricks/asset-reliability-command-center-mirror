@@ -9,6 +9,7 @@ import pytest
 
 from backend.gateway import GatewayAsk, GatewayElicitation
 from backend.identity import OboIdentityRegistry
+from backend.lakebase_repository import ApprovalReplayClaim
 from backend.model_client import ModelResult, ModelTurn
 from backend.models import IncidentDetail, PendingApproval
 from backend.production_runtime import (
@@ -124,9 +125,7 @@ async def test_unusable_rationale_falls_back_and_selected_tool_executes(
 
     await runtime._run_agent("incident-1")
 
-    runtime.gateway.call_tool.assert_awaited_once_with(
-        "submit_work_order", {}, "obo-token"
-    )
+    runtime.gateway.call_tool.assert_awaited_once_with("submit_work_order", {}, "obo-token")
     runtime.repository.complete_incident.assert_awaited_once_with("incident-1", "WO-10482")
     runtime.repository.fail_incident.assert_not_awaited()
     rationale_activity = next(
@@ -205,19 +204,16 @@ async def test_repeated_gateway_ask_leaves_waiting_state_unchanged() -> None:
         message="Approval required",
         tool_name="submit_work_order",
     )
-    runtime.repository.claim_pending_approval = AsyncMock(return_value=pending)
+    runtime.repository.claim_pending_approval = AsyncMock(
+        return_value=ApprovalReplayClaim(pending=pending, claim_id="claim-1", version=3)
+    )
     runtime.repository.release_pending_approval = AsyncMock()
 
-    assert (
-        await runtime._retry_pending(
-            "incident-1", pending, "operator@databricks.com"
-        )
-        is False
-    )
+    assert await runtime._retry_pending("incident-1", pending, "operator@databricks.com") is False
     runtime.repository.claim_pending_approval.assert_awaited_once_with(
         "incident-1", "operator@databricks.com"
     )
-    runtime.repository.release_pending_approval.assert_awaited_once_with("incident-1")
+    runtime.repository.release_pending_approval.assert_awaited_once_with("incident-1", "claim-1", 3)
     runtime.repository.append_activity.assert_not_awaited()
     runtime.repository.append_conversation.assert_not_awaited()
     runtime.repository.complete_incident.assert_not_awaited()
@@ -236,25 +232,23 @@ async def test_successful_replay_records_exact_request_receipt_before_completion
     )
     runtime.repository = SimpleNamespace(
         incident=AsyncMock(return_value=incident),
-        claim_pending_approval=AsyncMock(return_value=pending),
+        claim_pending_approval=AsyncMock(
+            return_value=ApprovalReplayClaim(pending=pending, claim_id="claim-7", version=4)
+        ),
         release_pending_approval=AsyncMock(),
-        record_governance_receipt=AsyncMock(),
+        record_governance_receipt=AsyncMock(return_value=True),
     )
     runtime.identities = OboIdentityRegistry()
     runtime.identities.capture("scenario-1", "live-token")
     runtime.gateway = SimpleNamespace(
         replay=AsyncMock(
-            return_value={
-                "result": {"structuredContent": {"work_order_id": "WO-10482"}}
-            }
+            return_value={"result": {"structuredContent": {"work_order_id": "WO-10482"}}}
         )
     )
     runtime._complete_governed_action = AsyncMock()
     runtime._generate_post_approval_response = AsyncMock()
 
-    assert await runtime._retry_pending(
-        "incident-1", pending, "operator@databricks.com"
-    )
+    assert await runtime._retry_pending("incident-1", pending, "operator@databricks.com")
 
     receipt_call = runtime.repository.record_governance_receipt.await_args
     assert receipt_call.args[:2] == ("incident-1", "WO-10482")
@@ -265,7 +259,44 @@ async def test_successful_replay_records_exact_request_receipt_before_completion
     assert receipt["request_sha256"] == (
         "6df4e2f26c0e1b2cff8658620bd34f6006067bf9604c1a7b9d21032dbdab5f8e"
     )
+    assert receipt_call.args[3:] == ("claim-7", 4)
+    assert runtime._complete_governed_action.await_args.kwargs["persist_completion"] is False
     runtime.repository.release_pending_approval.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_successful_gateway_call_does_not_finalize_after_claim_is_lost() -> None:
+    runtime = ProductionCommandCenterRuntime.__new__(ProductionCommandCenterRuntime)
+    incident = SimpleNamespace(status="waiting", scenario_id="scenario-1")
+    pending = PendingApproval(
+        serialized_request='{"jsonrpc":"2.0","method":"tools/call"}',
+        elicitation_id="approval-8",
+        approval_url="https://example.test/approval",
+        message="Approval required",
+        tool_name="submit_work_order",
+    )
+    runtime.repository = SimpleNamespace(
+        incident=AsyncMock(return_value=incident),
+        claim_pending_approval=AsyncMock(
+            return_value=ApprovalReplayClaim(pending=pending, claim_id="expired-claim", version=5)
+        ),
+        release_pending_approval=AsyncMock(),
+        record_governance_receipt=AsyncMock(return_value=False),
+    )
+    runtime.identities = OboIdentityRegistry()
+    runtime.identities.capture("scenario-1", "live-token")
+    runtime.gateway = SimpleNamespace(
+        replay=AsyncMock(
+            return_value={"result": {"structuredContent": {"work_order_id": "WO-10483"}}}
+        )
+    )
+    runtime._complete_governed_action = AsyncMock()
+    runtime._generate_post_approval_response = AsyncMock()
+
+    assert not await runtime._retry_pending("incident-1", pending, "operator@databricks.com")
+    runtime.repository.record_governance_receipt.assert_awaited_once()
+    runtime._complete_governed_action.assert_not_awaited()
+    runtime._generate_post_approval_response.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -527,9 +558,7 @@ async def test_handover_binds_cached_selected_operator_token_to_fresh_scenario()
     old_review = asyncio.create_task(asyncio.sleep(10))
     runtime._run_tasks.add(old_review)
 
-    scenario_id = await runtime.handover_operator(
-        3, "bob@databricks.com", "alice@databricks.com"
-    )
+    scenario_id = await runtime.handover_operator(3, "bob@databricks.com", "alice@databricks.com")
 
     assert scenario_id == "fresh-scenario"
     assert runtime.identities.get("fresh-scenario").token == "bob-live-token"

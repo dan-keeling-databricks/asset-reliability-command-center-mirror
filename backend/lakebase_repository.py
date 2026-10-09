@@ -11,6 +11,7 @@ import asyncio
 import os
 import re
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,15 @@ from backend.models import (
     ScenarioState,
     ShiftOperatorState,
 )
+
+
+@dataclass(frozen=True)
+class ApprovalReplayClaim:
+    """Version-fenced ownership of one persisted Gateway replay request."""
+
+    pending: PendingApproval
+    claim_id: str
+    version: int
 
 
 class OAuthAsyncConnection(psycopg.AsyncConnection[Any]):
@@ -247,9 +257,7 @@ class LakebaseCommandCenterRepository:
 
     async def _run_retention_pass(self) -> None:
         async with self._pool.connection() as connection:
-            series = await (
-                await connection.execute(self._retention_series_query())
-            ).fetchall()
+            series = await (await connection.execute(self._retention_series_query())).fetchall()
 
         for row in series:
             try:
@@ -1037,13 +1045,22 @@ class LakebaseCommandCenterRepository:
                 run = await (
                     await connection.execute(
                         sql.SQL(
-                            "SELECT run_id FROM {} WHERE incident_id = %s::uuid FOR UPDATE"
+                            """SELECT run.run_id FROM {} run
+                            JOIN {} incident ON incident.incident_id = run.incident_id
+                            JOIN {} scenario ON scenario.scenario_id = incident.scenario_id
+                            WHERE run.incident_id = %s::uuid AND scenario.status = 'active'
+                              AND run.status IN ('running', 'waiting_approval', 'completed')
+                            FOR UPDATE OF run, incident, scenario"""
                         ).format(
-                            self.table("agent_runs")
+                            self.table("agent_runs"),
+                            self.table("incidents"),
+                            self.table("scenario_runs"),
                         ),
                         (incident_id,),
                     )
                 ).fetchone()
+                if not run:
+                    return
                 await connection.execute(
                     sql.SQL(
                         "INSERT INTO {} (event_id, run_id, sequence, event_type, title, detail, "
@@ -1076,78 +1093,171 @@ class LakebaseCommandCenterRepository:
     async def set_waiting(self, incident_id: str, pending: PendingApproval) -> None:
         async with self._pool.connection() as connection:
             async with connection.transaction():
-                await connection.execute(
+                active = await (
+                    await connection.execute(
+                        sql.SQL(
+                            """SELECT run.run_id FROM {} run
+                            JOIN {} incident ON incident.incident_id = run.incident_id
+                            JOIN {} scenario ON scenario.scenario_id = incident.scenario_id
+                            WHERE run.incident_id = %s::uuid
+                              AND scenario.status = 'active'
+                              AND incident.status = 'reviewing'
+                              AND run.status = 'running'
+                            FOR UPDATE OF run, incident, scenario"""
+                        ).format(
+                            self.table("agent_runs"),
+                            self.table("incidents"),
+                            self.table("scenario_runs"),
+                        ),
+                        (incident_id,),
+                    )
+                ).fetchone()
+                if not active:
+                    return
+                incident = await connection.execute(
                     sql.SQL(
-                        "UPDATE {} SET status = 'waiting_approval' WHERE incident_id = %s::uuid"
-                    ).format(self.table("incidents")),
+                        """UPDATE {} incident SET status = 'waiting_approval'
+                        FROM {} scenario WHERE incident.incident_id = %s::uuid
+                          AND incident.scenario_id = scenario.scenario_id
+                          AND scenario.status = 'active' AND incident.status = 'reviewing'"""
+                    ).format(self.table("incidents"), self.table("scenario_runs")),
                     (incident_id,),
                 )
-                await connection.execute(
+                if incident.rowcount != 1:
+                    return
+                run = await connection.execute(
                     sql.SQL(
                         "UPDATE {} SET status = 'waiting_approval', pending_approval_url = %s, "
                         "pending_tool_request = %s, approval_replay_state = 'pending', "
-                        "approval_claimed_at = NULL, approval_claimed_by = NULL "
-                        "WHERE incident_id = %s::uuid"
+                        "approval_claimed_at = NULL, approval_claimed_by = NULL, "
+                        "approval_claim_id = NULL "
+                        "WHERE incident_id = %s::uuid AND status = 'running'"
                     ).format(self.table("agent_runs")),
                     (pending.approval_url, Jsonb(pending.model_dump(mode="json")), incident_id),
                 )
+                if run.rowcount != 1:
+                    raise RuntimeError("Agent run changed while entering approval wait state")
 
     async def claim_pending_approval(
         self, incident_id: str, approving_subject: str
-    ) -> PendingApproval | None:
+    ) -> ApprovalReplayClaim | None:
         """Claim one paused request, reclaiming only an abandoned two-minute lease."""
 
         async with self._pool.connection() as connection:
             async with connection.transaction():
+                active = await (
+                    await connection.execute(
+                        sql.SQL(
+                            """SELECT run.run_id FROM {} run
+                            JOIN {} incident ON incident.incident_id = run.incident_id
+                            JOIN {} scenario ON scenario.scenario_id = incident.scenario_id
+                            WHERE run.incident_id = %s::uuid
+                              AND scenario.status = 'active'
+                              AND incident.status = 'waiting_approval'
+                              AND run.status = 'waiting_approval'
+                            FOR UPDATE OF run, incident, scenario"""
+                        ).format(
+                            self.table("agent_runs"),
+                            self.table("incidents"),
+                            self.table("scenario_runs"),
+                        ),
+                        (incident_id,),
+                    )
+                ).fetchone()
+                if not active:
+                    return None
+                claim_id = uuid4()
                 row = await (
                     await connection.execute(
                         sql.SQL(
-                            """UPDATE {} SET approval_replay_state = 'claimed',
-                            approval_claimed_at = NOW(), approval_claimed_by = %s
-                            WHERE incident_id = %s::uuid AND status = 'waiting_approval'
+                            """UPDATE {} run SET approval_replay_state = 'claimed',
+                            approval_claimed_at = NOW(), approval_claimed_by = %s,
+                            approval_claim_id = %s,
+                            approval_claim_version = approval_claim_version + 1
+                            FROM {} incident, {} scenario
+                            WHERE run.incident_id = %s::uuid
+                              AND run.incident_id = incident.incident_id
+                              AND incident.scenario_id = scenario.scenario_id
+                              AND scenario.status = 'active'
+                              AND incident.status = 'waiting_approval'
+                              AND run.status = 'waiting_approval'
                               AND pending_tool_request IS NOT NULL
                               AND (COALESCE(approval_replay_state, 'pending') = 'pending'
                                 OR (approval_replay_state = 'claimed' AND
                                     approval_claimed_at < NOW() - INTERVAL '2 minutes'))
-                            RETURNING pending_tool_request"""
-                        ).format(self.table("agent_runs")),
-                        (approving_subject, incident_id),
+                            RETURNING pending_tool_request, approval_claim_id,
+                                      approval_claim_version"""
+                        ).format(
+                            self.table("agent_runs"),
+                            self.table("incidents"),
+                            self.table("scenario_runs"),
+                        ),
+                        (approving_subject, claim_id, incident_id),
                     )
                 ).fetchone()
         if not row:
             return None
-        return PendingApproval.model_validate(row["pending_tool_request"])
+        return ApprovalReplayClaim(
+            pending=PendingApproval.model_validate(row["pending_tool_request"]),
+            claim_id=str(row["approval_claim_id"]),
+            version=int(row["approval_claim_version"]),
+        )
 
-    async def release_pending_approval(self, incident_id: str) -> None:
+    async def release_pending_approval(
+        self, incident_id: str, claim_id: str, claim_version: int
+    ) -> None:
         """Release a replay lease when Gateway still requires approval or transport fails."""
 
         async with self._pool.connection() as connection:
             await connection.execute(
                 sql.SQL(
                     "UPDATE {} SET approval_replay_state = 'pending', "
-                    "approval_claimed_at = NULL, approval_claimed_by = NULL "
+                    "approval_claimed_at = NULL, approval_claimed_by = NULL, "
+                    "approval_claim_id = NULL "
                     "WHERE incident_id = %s::uuid AND status = 'waiting_approval' "
-                    "AND approval_replay_state = 'claimed'"
+                    "AND approval_replay_state = 'claimed' "
+                    "AND approval_claim_id = %s::uuid AND approval_claim_version = %s"
                 ).format(self.table("agent_runs")),
-                (incident_id,),
+                (incident_id, claim_id, claim_version),
             )
             await connection.commit()
 
     async def record_governance_receipt(
-        self, incident_id: str, work_order_id: str, receipt: dict[str, Any]
-    ) -> None:
-        """Append an immutable approval receipt and attach its projection to the work order."""
+        self,
+        incident_id: str,
+        work_order_id: str,
+        receipt: dict[str, Any],
+        claim_id: str,
+        claim_version: int,
+    ) -> bool:
+        """Atomically finalize only the still-owned replay on the active scenario."""
 
         async with self._pool.connection() as connection:
             async with connection.transaction():
                 run = await (
                     await connection.execute(
                         sql.SQL(
-                            "SELECT run_id FROM {} WHERE incident_id = %s::uuid FOR UPDATE"
-                        ).format(self.table("agent_runs")),
-                        (incident_id,),
+                            """SELECT run.run_id FROM {} run
+                            JOIN {} incident ON incident.incident_id = run.incident_id
+                            JOIN {} scenario ON scenario.scenario_id = incident.scenario_id
+                            WHERE run.incident_id = %s::uuid
+                              AND scenario.status = 'active'
+                              AND incident.status = 'waiting_approval'
+                              AND run.status = 'waiting_approval'
+                              AND run.approval_replay_state = 'claimed'
+                              AND run.approval_claim_id = %s::uuid
+                              AND run.approval_claim_version = %s
+                            FOR UPDATE OF run, incident, scenario"""
+                        ).format(
+                            self.table("agent_runs"),
+                            self.table("incidents"),
+                            self.table("scenario_runs"),
+                        ),
+                        (incident_id, claim_id, claim_version),
                     )
                 ).fetchone()
+                if not run:
+                    return False
                 await connection.execute(
                     sql.SQL(
                         """INSERT INTO {} (receipt_id, run_id, incident_id, elicitation_id,
@@ -1168,81 +1278,210 @@ class LakebaseCommandCenterRepository:
                         receipt["completed_at"],
                     ),
                 )
-                await connection.execute(
+                work_order = await connection.execute(
                     sql.SQL(
-                        "UPDATE {} SET governance_receipt = %s WHERE work_order_id = %s"
+                        "UPDATE {} SET governance_receipt = %s "
+                        "WHERE work_order_id = %s AND incident_id = %s::uuid"
                     ).format(self.table("work_orders")),
-                    (Jsonb(receipt), work_order_id),
+                    (Jsonb(receipt), work_order_id, incident_id),
                 )
-
-    async def complete_incident(self, incident_id: str, work_order_id: str) -> None:
-        summary = f"{work_order_id} scheduled to replace the drive-end bearing."
-        async with self._pool.connection() as connection:
-            async with connection.transaction():
+                if work_order.rowcount != 1:
+                    raise RuntimeError("Governed work order is missing during replay finalization")
+                summary = f"{work_order_id} scheduled to replace the drive-end bearing."
                 await connection.execute(
                     sql.SQL(
                         "UPDATE {} SET status = 'maintenance_scheduled', resolved_at = NOW(), "
-                        "resolution_summary = %s WHERE incident_id = %s::uuid"
+                        "resolution_summary = %s WHERE incident_id = %s::uuid "
+                        "AND status = 'waiting_approval'"
                     ).format(self.table("incidents")),
                     (summary, incident_id),
                 )
-                await connection.execute(
+                completed = await connection.execute(
                     sql.SQL(
                         "UPDATE {} SET status = 'completed', completed_at = NOW(), "
                         "pending_approval_url = NULL, pending_tool_request = NULL, "
                         "approval_replay_state = 'completed' "
-                        "WHERE incident_id = %s::uuid"
+                        "WHERE incident_id = %s::uuid AND status = 'waiting_approval' "
+                        "AND approval_claim_id = %s::uuid AND approval_claim_version = %s"
+                    ).format(self.table("agent_runs")),
+                    (incident_id, claim_id, claim_version),
+                )
+                if completed.rowcount != 1:
+                    raise RuntimeError("Approval claim changed during replay finalization")
+                return True
+
+    async def complete_incident(self, incident_id: str, work_order_id: str) -> bool:
+        """Complete only a still-active incident; never resurrect an archived scenario."""
+
+        summary = f"{work_order_id} scheduled to replace the drive-end bearing."
+        async with self._pool.connection() as connection:
+            async with connection.transaction():
+                active = await (
+                    await connection.execute(
+                        sql.SQL(
+                            """SELECT run.run_id FROM {} run
+                            JOIN {} incident ON incident.incident_id = run.incident_id
+                            JOIN {} scenario ON scenario.scenario_id = incident.scenario_id
+                            WHERE run.incident_id = %s::uuid
+                              AND scenario.status = 'active'
+                              AND incident.status IN ('reviewing', 'waiting_approval')
+                              AND run.status IN ('running', 'waiting_approval')
+                            FOR UPDATE OF run, incident, scenario"""
+                        ).format(
+                            self.table("agent_runs"),
+                            self.table("incidents"),
+                            self.table("scenario_runs"),
+                        ),
+                        (incident_id,),
+                    )
+                ).fetchone()
+                if not active:
+                    return False
+                incident = await connection.execute(
+                    sql.SQL(
+                        """UPDATE {} incident SET status = 'maintenance_scheduled',
+                        resolved_at = NOW(), resolution_summary = %s FROM {} scenario
+                        WHERE incident.incident_id = %s::uuid
+                          AND incident.scenario_id = scenario.scenario_id
+                          AND scenario.status = 'active'
+                          AND incident.status IN ('reviewing', 'waiting_approval')"""
+                    ).format(self.table("incidents"), self.table("scenario_runs")),
+                    (summary, incident_id),
+                )
+                if incident.rowcount != 1:
+                    return False
+                completed = await connection.execute(
+                    sql.SQL(
+                        "UPDATE {} SET status = 'completed', completed_at = NOW(), "
+                        "pending_approval_url = NULL, pending_tool_request = NULL, "
+                        "approval_replay_state = 'completed' "
+                        "WHERE incident_id = %s::uuid "
+                        "AND status IN ('running', 'waiting_approval')"
                     ).format(self.table("agent_runs")),
                     (incident_id,),
                 )
-    async def resolve_no_action(self, incident_id: str) -> None:
+                if completed.rowcount != 1:
+                    raise RuntimeError("Agent run changed during incident completion")
+                return True
+
+    async def resolve_no_action(self, incident_id: str) -> bool:
         summary = (
             "Signal returned to its expected operating envelope; no maintenance action required."
         )
         async with self._pool.connection() as connection:
             async with connection.transaction():
-                await connection.execute(
+                active = await (
+                    await connection.execute(
+                        sql.SQL(
+                            """SELECT run.run_id FROM {} run
+                            JOIN {} incident ON incident.incident_id = run.incident_id
+                            JOIN {} scenario ON scenario.scenario_id = incident.scenario_id
+                            WHERE run.incident_id = %s::uuid
+                              AND scenario.status = 'active'
+                              AND incident.status = 'reviewing'
+                              AND run.status = 'running'
+                            FOR UPDATE OF run, incident, scenario"""
+                        ).format(
+                            self.table("agent_runs"),
+                            self.table("incidents"),
+                            self.table("scenario_runs"),
+                        ),
+                        (incident_id,),
+                    )
+                ).fetchone()
+                if not active:
+                    return False
+                incident = await connection.execute(
                     sql.SQL(
-                        "UPDATE {} SET status = 'resolved_no_action', resolved_at = NOW(), "
-                        "resolution_summary = %s WHERE incident_id = %s::uuid"
-                    ).format(self.table("incidents")),
+                        """UPDATE {} incident SET status = 'resolved_no_action',
+                        resolved_at = NOW(), resolution_summary = %s FROM {} scenario
+                        WHERE incident.incident_id = %s::uuid
+                          AND incident.scenario_id = scenario.scenario_id
+                          AND scenario.status = 'active' AND incident.status = 'reviewing'"""
+                    ).format(self.table("incidents"), self.table("scenario_runs")),
                     (summary, incident_id),
                 )
-                await connection.execute(
+                if incident.rowcount != 1:
+                    return False
+                completed = await connection.execute(
                     sql.SQL(
                         "UPDATE {} SET status = 'completed', completed_at = NOW() "
-                        "WHERE incident_id = %s::uuid"
+                        "WHERE incident_id = %s::uuid AND status = 'running'"
                     ).format(self.table("agent_runs")),
                     (incident_id,),
                 )
-    async def fail_incident(self, incident_id: str, error: str) -> None:
+                if completed.rowcount != 1:
+                    raise RuntimeError("Agent run changed during no-action completion")
+                return True
+
+    async def fail_incident(self, incident_id: str, error: str) -> bool:
+        """Fail only a run in the active scenario; archived runs retain restart outcome."""
+
         async with self._pool.connection() as connection:
             async with connection.transaction():
-                await connection.execute(
-                    sql.SQL("UPDATE {} SET status = 'failed' WHERE incident_id = %s::uuid").format(
-                        self.table("incidents")
-                    ),
+                active = await (
+                    await connection.execute(
+                        sql.SQL(
+                            """SELECT run.run_id FROM {} run
+                            JOIN {} incident ON incident.incident_id = run.incident_id
+                            JOIN {} scenario ON scenario.scenario_id = incident.scenario_id
+                            WHERE run.incident_id = %s::uuid
+                              AND scenario.status = 'active'
+                              AND incident.status IN ('reviewing', 'waiting_approval')
+                              AND run.status IN ('queued', 'running', 'waiting_approval')
+                            FOR UPDATE OF run, incident, scenario"""
+                        ).format(
+                            self.table("agent_runs"),
+                            self.table("incidents"),
+                            self.table("scenario_runs"),
+                        ),
+                        (incident_id,),
+                    )
+                ).fetchone()
+                if not active:
+                    return False
+                incident = await connection.execute(
+                    sql.SQL(
+                        """UPDATE {} incident SET status = 'failed' FROM {} scenario
+                        WHERE incident.incident_id = %s::uuid
+                          AND incident.scenario_id = scenario.scenario_id
+                          AND scenario.status = 'active'
+                          AND incident.status IN ('reviewing', 'waiting_approval')"""
+                    ).format(self.table("incidents"), self.table("scenario_runs")),
                     (incident_id,),
                 )
-                await connection.execute(
+                if incident.rowcount != 1:
+                    return False
+                failed = await connection.execute(
                     sql.SQL(
                         "UPDATE {} SET status = 'failed', completed_at = NOW(), error = %s "
-                        "WHERE incident_id = %s::uuid"
+                        "WHERE incident_id = %s::uuid "
+                        "AND status IN ('queued', 'running', 'waiting_approval')"
                     ).format(self.table("agent_runs")),
                     (error, incident_id),
                 )
+                if failed.rowcount != 1:
+                    raise RuntimeError("Agent run changed during failure completion")
+                return True
 
     async def append_conversation(self, incident_id: str, role: str, content: str) -> None:
         """Append a message after locking its incident as the sequence-allocation mutex."""
 
         async with self._pool.connection() as connection:
             async with connection.transaction():
-                await connection.execute(
-                    sql.SQL(
-                        "SELECT incident_id FROM {} WHERE incident_id = %s::uuid FOR UPDATE"
-                    ).format(self.table("incidents")),
-                    (incident_id,),
-                )
+                incident = await (
+                    await connection.execute(
+                        sql.SQL(
+                            """SELECT incident.incident_id FROM {} incident
+                        JOIN {} scenario ON scenario.scenario_id = incident.scenario_id
+                        WHERE incident.incident_id = %s::uuid AND scenario.status = 'active'
+                        FOR UPDATE OF incident, scenario"""
+                        ).format(self.table("incidents"), self.table("scenario_runs")),
+                        (incident_id,),
+                    )
+                ).fetchone()
+                if not incident:
+                    return
                 await connection.execute(
                     sql.SQL(
                         "INSERT INTO {} (message_id, incident_id, sequence, role, content) "
@@ -1287,32 +1526,103 @@ class LakebaseCommandCenterRepository:
     async def create_work_order(
         self, work_order_id: str, incident_id: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
+        """Create the governed write only for the active, claimed approval replay.
+
+        Unity Gateway is the approval authority. These predicates do not duplicate its policy;
+        they prevent a delayed source call from mutating an archived scenario or a run that no
+        longer owns a replay lease.
+        """
+
         async with self._pool.connection() as connection:
-            await connection.execute(
-                sql.SQL(
-                    "INSERT INTO {} (work_order_id, incident_id, pump_id, action, status, "
-                    "submitted_at, submitted_by, governance_receipt) VALUES "
-                    "(%s, %s::uuid, %s, %s, 'scheduled', NOW(), %s, %s) "
-                    "ON CONFLICT (work_order_id) DO NOTHING"
-                ).format(self.table("work_orders")),
-                (
-                    work_order_id,
-                    incident_id,
-                    payload["asset_id"],
-                    payload["action"],
-                    payload.get("submitted_by", "governed-agent"),
-                    Jsonb(payload.get("governance_receipt", {})),
-                ),
-            )
-            await connection.commit()
-            row = await (
+            async with connection.transaction():
+                active = await (
+                    await connection.execute(
+                        sql.SQL(
+                            """SELECT run.run_id FROM {} run
+                            JOIN {} incident ON incident.incident_id = run.incident_id
+                            JOIN {} scenario ON scenario.scenario_id = incident.scenario_id
+                            WHERE incident.incident_id = %s::uuid
+                              AND incident.pump_id = %s
+                              AND scenario.status = 'active'
+                              AND incident.status = 'waiting_approval'
+                              AND run.status = 'waiting_approval'
+                              AND run.approval_replay_state = 'claimed'
+                              AND run.approval_claim_id IS NOT NULL
+                            FOR UPDATE OF incident, scenario, run"""
+                        ).format(
+                            self.table("agent_runs"),
+                            self.table("incidents"),
+                            self.table("scenario_runs"),
+                        ),
+                        (incident_id, payload["asset_id"]),
+                    )
+                ).fetchone()
+                if not active:
+                    raise RuntimeError(
+                        "Governed work order rejected because its scenario or "
+                        "approval claim is stale"
+                    )
                 await connection.execute(
-                    sql.SQL("SELECT * FROM {} WHERE work_order_id = %s").format(
-                        self.table("work_orders")
+                    sql.SQL(
+                        """INSERT INTO {} (work_order_id, incident_id, pump_id, action, status,
+                        submitted_at, submitted_by, governance_receipt)
+                        SELECT %s, incident.incident_id, incident.pump_id, %s, 'scheduled',
+                               NOW(), %s, %s
+                        FROM {} incident
+                        JOIN {} scenario ON scenario.scenario_id = incident.scenario_id
+                        JOIN {} run ON run.incident_id = incident.incident_id
+                        WHERE incident.incident_id = %s::uuid
+                          AND incident.pump_id = %s
+                          AND scenario.status = 'active'
+                          AND incident.status = 'waiting_approval'
+                          AND run.status = 'waiting_approval'
+                          AND run.approval_replay_state = 'claimed'
+                          AND run.approval_claim_id IS NOT NULL
+                        ON CONFLICT (work_order_id) DO NOTHING"""
+                    ).format(
+                        self.table("work_orders"),
+                        self.table("incidents"),
+                        self.table("scenario_runs"),
+                        self.table("agent_runs"),
                     ),
-                    (work_order_id,),
+                    (
+                        work_order_id,
+                        payload["action"],
+                        payload.get("submitted_by", "governed-agent"),
+                        Jsonb(payload.get("governance_receipt", {})),
+                        incident_id,
+                        payload["asset_id"],
+                    ),
                 )
-            ).fetchone()
+                row = await (
+                    await connection.execute(
+                        sql.SQL(
+                            """SELECT work_order.* FROM {} work_order
+                            JOIN {} incident ON incident.incident_id = work_order.incident_id
+                            JOIN {} scenario ON scenario.scenario_id = incident.scenario_id
+                            JOIN {} run ON run.incident_id = incident.incident_id
+                            WHERE work_order.work_order_id = %s
+                              AND work_order.incident_id = %s::uuid
+                              AND work_order.pump_id = %s
+                              AND scenario.status = 'active'
+                              AND incident.status = 'waiting_approval'
+                              AND run.status = 'waiting_approval'
+                              AND run.approval_replay_state = 'claimed'
+                              AND run.approval_claim_id IS NOT NULL"""
+                        ).format(
+                            self.table("work_orders"),
+                            self.table("incidents"),
+                            self.table("scenario_runs"),
+                            self.table("agent_runs"),
+                        ),
+                        (work_order_id, incident_id, payload["asset_id"]),
+                    )
+                ).fetchone()
+                if not row:
+                    raise RuntimeError(
+                        "Governed work order rejected because its scenario or "
+                        "approval claim is stale"
+                    )
         return {
             "work_order_id": row["work_order_id"],
             "incident_id": str(row["incident_id"]),

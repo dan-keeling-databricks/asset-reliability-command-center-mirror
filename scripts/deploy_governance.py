@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlparse
@@ -46,10 +47,7 @@ def ensure_source_app_permission(client: WorkspaceClient, app) -> bool:
     for entry in permissions.access_control_list or []:
         if entry.service_principal_name != app.service_principal_client_id:
             continue
-        levels = {
-            permission.permission_level
-            for permission in entry.all_permissions or []
-        }
+        levels = {permission.permission_level for permission in entry.all_permissions or []}
         if AppPermissionLevel.CAN_USE in levels or AppPermissionLevel.CAN_MANAGE in levels:
             return False
 
@@ -76,9 +74,7 @@ def deploy_skill(client: WorkspaceClient) -> dict[str, object]:
             "POST",
             "/api/2.1/unity-catalog/skills",
             query={"parent": PARENT, "skill_id": SKILL_ID},
-            body={
-                "comment": "Evidence-led response procedure for autonomous asset anomalies"
-            },
+            body={"comment": "Evidence-led response procedure for autonomous asset anomalies"},
         )
         created = True
 
@@ -122,9 +118,7 @@ def _connection_drift(connection, desired: dict[str, str]) -> bool:
 
     current = connection.options or {}
     return any(
-        current.get(key) != value
-        for key, value in desired.items()
-        if key != "client_secret"
+        current.get(key) != value for key, value in desired.items() if key != "client_secret"
     )
 
 
@@ -149,9 +143,7 @@ def ensure_connection(client: WorkspaceClient, app) -> tuple[object, str]:
             )
         except Exception:
             # Avoid leaving an unreferenced App-SP credential if connection creation fails.
-            client.service_principal_secrets_proxy.delete(
-                str(app.service_principal_id), secret.id
-            )
+            client.service_principal_secrets_proxy.delete(str(app.service_principal_id), secret.id)
             raise
         return connection, "created"
 
@@ -167,9 +159,7 @@ def ensure_connection(client: WorkspaceClient, app) -> tuple[object, str]:
             _connection_options(client, app, secret.secret),
         )
     except Exception:
-        client.service_principal_secrets_proxy.delete(
-            str(app.service_principal_id), secret.id
-        )
+        client.service_principal_secrets_proxy.delete(str(app.service_principal_id), secret.id)
         raise
     return connection, "updated"
 
@@ -190,15 +180,19 @@ def _service_config(function_id: str) -> dict[str, object]:
     }
 
 
-def ensure_service(client: WorkspaceClient, function_id: str) -> tuple[dict, str]:
-    """Create the governed service or patch its selectors and policy back to source."""
+def ensure_service(
+    client: WorkspaceClient,
+    function_id: str,
+    *,
+    max_attempts: int = 6,
+    retry_delay_seconds: float = 0.5,
+) -> tuple[dict, str]:
+    """Create or reconcile the service, verifying PATCH propagation with fresh GETs."""
 
     desired = _service_config(function_id)
 
     try:
-        service = client.api_client.do(
-            "GET", f"/api/2.1/unity-catalog/mcp-services/{SERVICE_FQN}"
-        )
+        service = client.api_client.do("GET", f"/api/2.1/unity-catalog/mcp-services/{SERVICE_FQN}")
     except NotFound:
         service = client.api_client.do(
             "POST",
@@ -212,16 +206,32 @@ def ensure_service(client: WorkspaceClient, function_id: str) -> tuple[dict, str
         return service, "created"
     if service.get("config") == desired:
         return service, "unchanged"
-    service = client.api_client.do(
-        "PATCH",
-        f"/api/2.1/unity-catalog/mcp-services/{SERVICE_FQN}",
-        body={"config": desired},
-    )
-    return service, "updated"
+
+    for attempt in range(max_attempts):
+        client.api_client.do(
+            "PATCH",
+            f"/api/2.1/unity-catalog/mcp-services/{SERVICE_FQN}",
+            body={"config": desired},
+        )
+        service = client.api_client.do("GET", f"/api/2.1/unity-catalog/mcp-services/{SERVICE_FQN}")
+        if service.get("config") == desired:
+            return service, "updated"
+        if attempt + 1 < max_attempts:
+            time.sleep(retry_delay_seconds * (2**attempt))
+    raise RuntimeError("Unity Gateway service did not converge to the declared configuration")
 
 
-async def probe_submit_policy(client: WorkspaceClient) -> dict[str, str]:
-    """Prove the deployed service returns native ASK before the source tool executes."""
+async def probe_submit_policy(
+    client: WorkspaceClient,
+    *,
+    max_attempts: int = 6,
+    retry_delay_seconds: float = 0.5,
+) -> dict[str, object]:
+    """Prove discovery, source authentication, and native ASK after propagation.
+
+    The result is intentionally sanitized: neither the OBO token, source headers, nor raw
+    telemetry are returned or logged.
+    """
 
     authorization = client.config.authenticate().get("Authorization", "")
     token = authorization.removeprefix("Bearer ").strip()
@@ -230,25 +240,49 @@ async def probe_submit_policy(client: WorkspaceClient) -> dict[str, str]:
     gateway_url = f"{client.config.host}/ai-gateway/mcp-services/{SERVICE_FQN}"
     gateway = GovernedGatewayClient(gateway_url)
     try:
-        await gateway.call_tool(
-            "submit_work_order",
-            {
-                "asset_id": "P-204",
-                "action": "Policy deployment probe; must not execute",
-                "incident_id": "00000000-0000-0000-0000-000000000000",
-                "planned_window": "never",
-            },
-            token,
-        )
-    except GatewayAsk as ask:
-        return {
-            "decision": "ASK",
-            "elicitation_id": ask.elicitation.elicitation_id,
-            "execution": "not executed",
-        }
+        for attempt in range(max_attempts):
+            try:
+                tools = await gateway.list_tools(token)
+                discovered = [str(tool.get("name", "")) for tool in tools]
+                if len(discovered) != len(TOOLS) or set(discovered) != set(TOOLS):
+                    raise RuntimeError(
+                        "Gateway tool discovery did not match the exact declared tool set"
+                    )
+
+                telemetry = await gateway.call_tool(
+                    "get_asset_telemetry", {"asset_id": "P-204"}, token
+                )
+                result = telemetry.get("result", {})
+                if result.get("isError") is True or telemetry.get("error"):
+                    raise RuntimeError("Benign source authentication probe failed")
+
+                try:
+                    await gateway.call_tool(
+                        "submit_work_order",
+                        {
+                            "asset_id": "P-204",
+                            "action": "Policy deployment probe; must not execute",
+                            "incident_id": "00000000-0000-0000-0000-000000000000",
+                            "planned_window": "never",
+                        },
+                        token,
+                    )
+                except GatewayAsk as ask:
+                    return {
+                        "tools": discovered,
+                        "source_authentication": "verified",
+                        "decision": "ASK",
+                        "elicitation_id": ask.elicitation.elicitation_id,
+                        "execution": "not executed",
+                    }
+                raise RuntimeError("submit_work_order policy probe did not return native ASK")
+            except Exception:
+                if attempt + 1 >= max_attempts:
+                    raise
+                await asyncio.sleep(retry_delay_seconds * (2**attempt))
     finally:
         await gateway.close()
-    raise RuntimeError("submit_work_order policy probe did not return native ASK")
+    raise RuntimeError("Unity Gateway deployment probe exhausted without success")
 
 
 def main() -> None:
