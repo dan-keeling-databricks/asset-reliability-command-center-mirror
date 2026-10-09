@@ -10,6 +10,7 @@ from scripts.deploy_governance import (
     POLICY_FQN,
     TOOLS,
     _connection_drift,
+    _service_config_matches,
     ensure_service,
     probe_submit_policy,
 )
@@ -72,6 +73,28 @@ def test_service_drift_is_patched_to_declared_tools_and_ask_policy() -> None:
     ]
     assert [call[0] for call in calls] == ["GET", "PATCH", "GET"]
     assert calls[1][3] == {"update_mask": "config"}
+
+
+def test_service_match_ignores_gateway_expansion_but_not_governed_drift() -> None:
+    desired = deployment._service_config("policy-function-id")
+    actual = {
+        "source_connection": {
+            "name": "connections/asset_reliability_mcp_connection",
+            "id": "connection-id",
+            "status": "ACTIVE",
+        },
+        "include_tool_selectors": TOOLS,
+        "service_policies": [
+            {
+                **desired["service_policies"][0],
+                "is_deleted": False,
+            }
+        ],
+    }
+
+    assert _service_config_matches(actual, desired)
+    actual["include_tool_selectors"] = [*TOOLS, "unexpected_tool"]
+    assert not _service_config_matches(actual, desired)
 
 
 def test_service_patch_is_retried_until_a_fresh_get_observes_declared_config() -> None:

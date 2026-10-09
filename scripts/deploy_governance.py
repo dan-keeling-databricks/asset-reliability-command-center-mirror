@@ -180,6 +180,39 @@ def _service_config(function_id: str) -> dict[str, object]:
     }
 
 
+def _service_config_matches(actual: dict[str, object], desired: dict[str, object]) -> bool:
+    """Compare governed inputs while ignoring read-only fields expanded by Gateway GET."""
+
+    actual_source = actual.get("source_connection") or {}
+    desired_source = desired.get("source_connection") or {}
+    if not isinstance(actual_source, dict) or not isinstance(desired_source, dict):
+        return False
+    if actual_source.get("name") != desired_source.get("name"):
+        return False
+    if actual.get("include_tool_selectors") != desired.get("include_tool_selectors"):
+        return False
+
+    governed_policy_fields = (
+        "name",
+        "policy_type",
+        "handler",
+        "function_id",
+        "rank",
+    )
+
+    def project_policies(config: dict[str, object]) -> list[dict[str, object]]:
+        policies = config.get("service_policies") or []
+        if not isinstance(policies, list):
+            return []
+        return [
+            {field: policy.get(field) for field in governed_policy_fields}
+            for policy in policies
+            if isinstance(policy, dict)
+        ]
+
+    return project_policies(actual) == project_policies(desired)
+
+
 def ensure_service(
     client: WorkspaceClient,
     function_id: str,
@@ -204,7 +237,7 @@ def ensure_service(
             },
         )
         return service, "created"
-    if service.get("config") == desired:
+    if _service_config_matches(service.get("config") or {}, desired):
         return service, "unchanged"
 
     for attempt in range(max_attempts):
@@ -215,7 +248,7 @@ def ensure_service(
             body={"config": desired},
         )
         service = client.api_client.do("GET", f"/api/2.1/unity-catalog/mcp-services/{SERVICE_FQN}")
-        if service.get("config") == desired:
+        if _service_config_matches(service.get("config") or {}, desired):
             return service, "updated"
         if attempt + 1 < max_attempts:
             time.sleep(retry_delay_seconds * (2**attempt))
