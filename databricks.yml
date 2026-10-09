@@ -176,7 +176,6 @@ resources:
             parameters:
               catalog_name: ${var.catalog}
               schema_name: ${var.schema}
-              principal_name: ${var.app_access_group}
 
     setup_runtime_principal_access:
       name: Asset Reliability — grant workload identity access
@@ -191,7 +190,6 @@ resources:
               catalog_name: ${var.catalog}
               schema_name: ${var.schema}
               volume_name: ${var.volume}
-              principal_name: ${var.app_service_principal_client_id}
 
     telemetry_producer:
       name: Asset Reliability — continuous pump telemetry producer
