@@ -69,8 +69,16 @@ uv run ruff check backend tests src scripts
 uv run pytest
 npm --prefix frontend run typecheck
 npm --prefix frontend run build
-databricks bundle validate --target dev --profile fe_vm_rtm
+uv run python scripts/deploy.py \
+  --profile fe_vm_rtm \
+  --target dev \
+  --expected-host https://fevm-classic-stable-realtime-demos.cloud.databricks.com \
+  --access-group asset-reliability-command-center-operator \
+  --catalog classic_stable_realtime_demos_catalog \
+  --schema asset_reliability_command_center \
+  --app-name asset-reliability-center
 ```
 
-Deployment remains manual. Use only the checked entry point documented in
+The deployment preflight also stages the runtime-only App source and validates the bundle without
+changing the workspace. Deployment remains manual. Use only the checked entry point documented in
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md); a Git push or merge never changes the workspace.

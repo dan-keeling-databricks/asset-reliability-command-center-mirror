@@ -11,6 +11,7 @@ The entry point is deliberately conservative:
 - the full Python and frontend quality gate runs before deployment;
 - compiled frontend freshness is checked rather than assumed;
 - clean `HEAD` is written to the ignored `.build-info.json` included in the App snapshot;
+- a deterministic runtime-only App directory is staged under `.artifacts/app`;
 - resources are reconciled in dependency order;
 - both continuous streaming jobs restart on the deployed source;
 - post-deployment platform checks run before human acceptance begins.
@@ -78,7 +79,9 @@ Preflight performs the following checks and stops without changing workspace res
 6. Run Ruff, all Pytest tests, TypeScript checking, and the Vite production build.
 7. Confirm `requirements.txt` matches `uv.lock` and `frontend/dist` is newer than every frontend
    source input.
-8. Validate the bundle with the explicit target/profile/group and prove no tracked file changed.
+8. Rebuild `.artifacts/app` from an explicit runtime allowlist and verify that it contains no
+   managed Genie definition, job/pipeline source, tests, documentation, caches, or local state.
+9. Validate the bundle with the explicit target/profile/group and prove no tracked file changed.
 
 Any failure stops the process before remote mutation.
 
@@ -120,6 +123,19 @@ The script applies these steps in order:
    MCP service tool selectors, and native `ASK` policy. Its probe must return `ASK` without source
    execution, after first proving exact tool discovery and a benign source read.
 8. Read-only checks inspect the App, bundle summary, and curated view.
+
+### App snapshot boundary
+
+The bundle root is not a valid App source directory. It contains the serialized Genie resource,
+which the bundle deploys as a special workspace node. Databricks Apps snapshot import does not
+support that node type. `scripts/deploy.py` therefore copies only `backend/`, `frontend/dist/`,
+the Lakebase schema migration, runtime manifests/locks, and `.build-info.json` into the ignored
+`.artifacts/app/` directory. The App resource snapshots that directory; the Genie Agent, jobs,
+pipeline, governed Skill, tests, scripts, and documentation remain independently deployable
+bundle/repository assets outside it.
+
+Do not hand-edit or commit `.artifacts/app`. Every preflight removes and recreates it, preventing
+stale or sensitive local files from surviving into a deployment.
 
 The pipeline wait defaults to ten minutes. Override only when classic-compute startup routinely
 requires longer:
