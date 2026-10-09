@@ -5,6 +5,7 @@ from contextlib import contextmanager
 
 from fastapi.testclient import TestClient
 
+import backend.main as main_module
 from backend.main import create_app
 from backend.repository import LocalCommandCenterRepository
 from backend.runtime import LocalCommandCenterRuntime, initial_snapshot
@@ -337,3 +338,13 @@ def test_build_info_is_text_readable(monkeypatch) -> None:
     monkeypatch.setenv("APP_BUILD_COMMIT", "abc123")
     with local_client() as client:
         assert client.get("/api/build-info").json() == {"git_commit": "abc123"}
+
+
+def test_build_info_uses_deployment_artifact_when_env_is_absent(monkeypatch, tmp_path) -> None:
+    build_info = tmp_path / ".build-info.json"
+    build_info.write_text('{"git_commit":"def456"}', encoding="utf-8")
+    monkeypatch.delenv("APP_BUILD_COMMIT", raising=False)
+    monkeypatch.setattr(main_module, "BUILD_INFO_PATH", build_info)
+
+    with local_client() as client:
+        assert client.get("/api/build-info").json() == {"git_commit": "def456"}

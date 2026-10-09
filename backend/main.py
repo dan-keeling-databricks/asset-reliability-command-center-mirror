@@ -41,7 +41,6 @@ from backend.runtime import (
 )
 from backend.settings import Settings, get_settings
 
-
 BUILD_INFO_PATH = Path(__file__).resolve().parents[1] / ".build-info.json"
 
 
