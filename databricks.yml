@@ -101,10 +101,6 @@ resources:
             "values": ["1"],
             "isOptional": true
           },
-          "data_security_mode": {
-            "type": "fixed",
-            "value": "SINGLE_USER"
-          },
           "runtime_engine": {
             "type": "allowlist",
             "values": ["STANDARD", "PHOTON"],

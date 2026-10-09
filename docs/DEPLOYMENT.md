@@ -102,7 +102,9 @@ uv run python scripts/deploy.py \
 The script applies these steps in order:
 
 1. A dedicated least-privilege compute policy and deployer-run UC grant job prepare the existing
-   App service principal for only the required classic workloads and runtime volume.
+   App service principal for only the required classic workloads and runtime volume. The policy
+   omits `data_security_mode` for Lakeflow compatibility; the two standalone job resources declare
+   `SINGLE_USER` directly.
 2. The producer, standalone RTM job, and continuous governed-history pipeline runner deploy under
    that workload identity. The helper derives the synced source directory from bundle metadata,
    idempotently grants the App service principal `CAN_READ`, verifies the effective permission,

@@ -89,7 +89,9 @@ and `SELECT` only on the curated view; no additional read-only group is created.
 
 The producer, standalone RTM job, and continuous pipeline-runner job execute as the existing App
 service principal. A bundle-managed least-privilege compute policy limits them to the approved
-classic `i3.xlarge` shapes, worker counts, runtimes, and on-demand availability. A deployer-run,
+classic `i3.xlarge` shapes, worker counts, runtimes, and on-demand availability. The producer and
+RTM resources explicitly require `SINGLE_USER`; the policy intentionally omits access mode because
+Lakeflow Declarative Pipelines reject policies that define it. A deployer-run,
 idempotent grant job gives that identity only the UC schema creation and runtime-volume access
 needed by those workloads before their run-as identity is changed. Because their notebooks are
 synced below the human deployer's bundle directory, the deployment helper also derives that

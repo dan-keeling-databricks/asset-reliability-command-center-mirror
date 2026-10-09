@@ -114,6 +114,10 @@ def test_bundle_uses_classic_pipeline_native_genie_and_obo_scope() -> None:
     assert '"maxValue": 1' in bundle
     assert '"value": "i3.xlarge"' in bundle
     assert '"value": "ON_DEMAND"' in bundle
+    # Lakeflow Declarative Pipelines reject policies that define data_security_mode. The two
+    # standalone job clusters still set SINGLE_USER explicitly in their resource definitions.
+    assert '"data_security_mode": {' not in bundle
+    assert bundle.count("data_security_mode: SINGLE_USER") == 2
     assert bundle.count(
         "policy_id: ${resources.cluster_policies.asset_reliability_workloads.id}"
     ) == 3
