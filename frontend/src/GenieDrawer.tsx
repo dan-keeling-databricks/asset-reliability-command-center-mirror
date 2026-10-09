@@ -75,7 +75,6 @@ function GenieAnswer({ item, onSuggestion }: { item: ConversationItem; onSuggest
     {response.suggested_questions.length > 0 && <div className="genie-suggestions"><span>Continue with</span>{response.suggested_questions.map((question) => <button type="button" key={question} onClick={() => onSuggestion(question)}>{question}</button>)}</div>}
     <footer className="genie-provenance">
       <div><strong>{response.source_label}</strong><span>{formatGeneratedAt(response.generated_at)}</span></div>
-      <p>AI-generated from governed telemetry via Genie — verify the answer against the generated SQL and source data.</p>
     </footer>
   </>;
 }
@@ -213,7 +212,6 @@ export function GenieDrawer({ open, onClose }: { open: boolean; onClose: () => v
       <form className="genie-composer" onSubmit={submit}>
         <label htmlFor="genie-question">Ask about fleet telemetry</label>
         <div><textarea id="genie-question" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Ask about trends, comparisons, or threshold crossings…" rows={2} disabled={pending || !identity?.obo_ready} /><button type="submit" disabled={pending || !question.trim() || !identity?.obo_ready}>{pending ? "Working…" : "Ask Genie"}</button></div>
-        <p>Continuous telemetry history · Independent of command-center restarts</p>
       </form>
     </aside>
   </div>;
