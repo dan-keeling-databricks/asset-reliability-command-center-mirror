@@ -289,7 +289,7 @@ class LocalCommandCenterRuntime:
                 RuntimeActivity(
                     category="model_call",
                     title="Model execution",
-                    actor="databricks-claude-sonnet-4-5",
+                    actor=self.settings.model_endpoint,
                     status="complete",
                     status_label="Completed",
                     summary=conclusion,
@@ -361,7 +361,7 @@ class LocalCommandCenterRuntime:
                 RuntimeActivity(
                     category="model_call",
                     title="Model execution",
-                    actor="databricks-claude-sonnet-4-5",
+                    actor=self.settings.model_endpoint,
                     status="complete",
                     status_label="Completed",
                     summary=answer,
@@ -458,7 +458,7 @@ class LocalCommandCenterRuntime:
             RuntimeActivity(
                 category="model_call",
                 title="Model execution",
-                actor="databricks-gpt-5-mini",
+                actor=self.settings.model_endpoint,
                 status="complete",
                 status_label="Completed",
                 summary=(
@@ -524,7 +524,7 @@ class LocalCommandCenterRuntime:
                 RuntimeActivity(
                     category="model_call",
                     title="Model execution",
-                    actor="databricks-gpt-5-mini",
+                    actor=self.settings.model_endpoint,
                     status="complete",
                     status_label="Completed",
                     summary=conclusion,
@@ -559,7 +559,7 @@ class LocalCommandCenterRuntime:
                 RuntimeActivity(
                     category="model_call",
                     title="Model execution",
-                    actor="databricks-gpt-5-mini",
+                    actor=self.settings.model_endpoint,
                     status="complete",
                     status_label="Completed",
                     summary=(
@@ -615,7 +615,7 @@ class LocalCommandCenterRuntime:
                 RuntimeActivity(
                     category="model_call",
                     title="Model execution",
-                    actor="databricks-claude-sonnet-4-5",
+                    actor=self.settings.model_endpoint,
                     status="complete",
                     status_label="Completed",
                     summary=(
