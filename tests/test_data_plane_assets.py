@@ -140,8 +140,10 @@ def test_runtime_principal_grant_is_minimal_and_idempotent() -> None:
     grants = (ROOT / "sql" / "grant_runtime_principal.sql").read_text()
 
     assert "GRANT USE CATALOG" in grants
-    assert "GRANT USE SCHEMA, CREATE TABLE" in grants
-    assert "GRANT READ VOLUME, WRITE VOLUME" in grants
+    assert "GRANT USE SCHEMA" in grants
+    assert "GRANT CREATE TABLE" in grants
+    assert "GRANT READ VOLUME" in grants
+    assert "GRANT WRITE VOLUME" in grants
     assert grants.count("SHOW GRANTS") == 3
     assert "CREATE USER" not in grants
     assert "CREATE GROUP" not in grants

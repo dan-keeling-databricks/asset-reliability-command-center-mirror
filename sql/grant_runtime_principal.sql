@@ -11,11 +11,19 @@ GRANT USE CATALOG
 ON CATALOG IDENTIFIER(:catalog_name)
 TO `bd5178cb-8774-4d77-bc63-b4f491716d0b`;
 
-GRANT USE SCHEMA, CREATE TABLE
+GRANT USE SCHEMA
 ON SCHEMA IDENTIFIER(:catalog_name || '.' || :schema_name)
 TO `bd5178cb-8774-4d77-bc63-b4f491716d0b`;
 
-GRANT READ VOLUME, WRITE VOLUME
+GRANT CREATE TABLE
+ON SCHEMA IDENTIFIER(:catalog_name || '.' || :schema_name)
+TO `bd5178cb-8774-4d77-bc63-b4f491716d0b`;
+
+GRANT READ VOLUME
+ON VOLUME IDENTIFIER(:catalog_name || '.' || :schema_name || '.' || :volume_name)
+TO `bd5178cb-8774-4d77-bc63-b4f491716d0b`;
+
+GRANT WRITE VOLUME
 ON VOLUME IDENTIFIER(:catalog_name || '.' || :schema_name || '.' || :volume_name)
 TO `bd5178cb-8774-4d77-bc63-b4f491716d0b`;
 
