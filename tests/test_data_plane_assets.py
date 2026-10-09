@@ -109,6 +109,24 @@ def test_genie_v2_uses_only_v2_column_assistance_fields() -> None:
     assert pump_id["enable_entity_matching"] is True
 
 
+def test_genie_formats_numeric_answers_to_one_decimal_place() -> None:
+    definition = json.loads(GENIE.read_text())
+    instructions = "\n".join(
+        line
+        for item in definition["instructions"]["text_instructions"]
+        for line in item["content"]
+    )
+    example_sql = "\n".join(
+        sql
+        for item in definition["instructions"]["example_question_sqls"]
+        for sql in item["sql"]
+    )
+
+    assert "one decimal place" in instructions
+    assert "Do not alter pump identifiers or timestamps" in instructions
+    assert "ROUND(" in example_sql
+
+
 def test_bundle_uses_classic_pipeline_native_genie_and_obo_scope() -> None:
     bundle = (ROOT / "databricks.yml").read_text()
     app = (ROOT / "app.yaml").read_text()
