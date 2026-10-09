@@ -211,6 +211,7 @@ def ensure_service(
         client.api_client.do(
             "PATCH",
             f"/api/2.1/unity-catalog/mcp-services/{SERVICE_FQN}",
+            query={"update_mask": "config"},
             body={"config": desired},
         )
         service = client.api_client.do("GET", f"/api/2.1/unity-catalog/mcp-services/{SERVICE_FQN}")

@@ -41,13 +41,13 @@ def test_connection_drift_ignores_redacted_secret_but_detects_routing_change() -
 
 
 def test_service_drift_is_patched_to_declared_tools_and_ask_policy() -> None:
-    calls: list[tuple[str, str, dict | None]] = []
+    calls: list[tuple[str, str, dict | None, dict | None]] = []
     current = {"include_tool_selectors": ["stale"]}
 
     class ApiClient:
-        def do(self, method, path, body=None):
+        def do(self, method, path, body=None, query=None):
             nonlocal current
-            calls.append((method, path, body))
+            calls.append((method, path, body, query))
             if method == "GET":
                 return {"name": "service", "config": current}
             current = body["config"]
@@ -71,6 +71,7 @@ def test_service_drift_is_patched_to_declared_tools_and_ask_policy() -> None:
         }
     ]
     assert [call[0] for call in calls] == ["GET", "PATCH", "GET"]
+    assert calls[1][3] == {"update_mask": "config"}
 
 
 def test_service_patch_is_retried_until_a_fresh_get_observes_declared_config() -> None:
@@ -79,9 +80,11 @@ def test_service_patch_is_retried_until_a_fresh_get_observes_declared_config() -
     get_count = 0
 
     class ApiClient:
-        def do(self, method, _path, body=None):
+        def do(self, method, _path, body=None, query=None):
             nonlocal get_count
             calls.append(method)
+            if method == "PATCH":
+                assert query == {"update_mask": "config"}
             if method == "GET":
                 get_count += 1
                 if get_count < 3:
