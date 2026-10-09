@@ -1,5 +1,6 @@
 .DS_Store
 .artifacts/
+.build-info.json
 .databricks/
 .data/
 .env

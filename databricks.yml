@@ -52,6 +52,7 @@ sync:
     - pyproject.toml
     - uv.lock
     - requirements.txt
+    - .build-info.json
   exclude:
     - .venv/**
     - "**/__pycache__/**"

@@ -9,6 +9,7 @@ is tracked explicitly in the technical-debt register.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -39,6 +40,9 @@ from backend.runtime import (
     initial_snapshot,
 )
 from backend.settings import Settings, get_settings
+
+
+BUILD_INFO_PATH = Path(__file__).resolve().parents[1] / ".build-info.json"
 
 
 def create_app(
@@ -162,7 +166,15 @@ def create_app(
     async def build_info() -> dict[str, str]:
         """Expose the immutable source revision injected by the checked deploy entry point."""
 
-        return {"git_commit": os.getenv("APP_BUILD_COMMIT", "unknown")}
+        environment_commit = os.getenv("APP_BUILD_COMMIT")
+        if environment_commit:
+            return {"git_commit": environment_commit}
+        try:
+            payload = json.loads(BUILD_INFO_PATH.read_text(encoding="utf-8"))
+            file_commit = str(payload.get("git_commit") or "").strip()
+        except (OSError, ValueError, AttributeError):
+            file_commit = ""
+        return {"git_commit": file_commit or "unknown"}
 
     @app.get("/api/dashboard")
     async def dashboard(
