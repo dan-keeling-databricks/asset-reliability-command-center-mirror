@@ -1,3 +1,5 @@
+"""Persistence protocol and deterministic in-memory implementation for local development."""
+
 from __future__ import annotations
 
 import asyncio
@@ -20,6 +22,8 @@ class Mutation(Protocol):
 
 
 class CommandCenterRepository(Protocol):
+    """Operations required by both local and Lakebase command-center runtimes."""
+
     async def start(self) -> None: ...
     async def close(self) -> None: ...
     async def snapshot(self) -> DashboardSnapshot: ...

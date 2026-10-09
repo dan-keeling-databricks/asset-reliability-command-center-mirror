@@ -1,3 +1,7 @@
+-- Canonical operational schema for the Asset Reliability Command Center.
+-- This migration is intentionally idempotent because every App startup applies it.
+
+-- Fleet reference data and scenario lifecycle.
 CREATE SCHEMA IF NOT EXISTS asset_reliability;
 
 CREATE TABLE IF NOT EXISTS asset_reliability.pumps (
@@ -39,6 +43,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS one_active_asset_reliability_scenario
     ON asset_reliability.scenario_runs ((status))
     WHERE status = 'active';
 
+-- Shared shift-operator identity and immutable handover audit.
 CREATE TABLE IF NOT EXISTS asset_reliability.app_users (
     email TEXT PRIMARY KEY,
     display_name TEXT NOT NULL,
@@ -90,6 +95,7 @@ CREATE INDEX IF NOT EXISTS scenario_commands_pending_idx
     ON asset_reliability.scenario_commands (requested_at)
     WHERE status = 'pending';
 
+-- Append-oriented telemetry plus the bounded latest-state read model.
 CREATE TABLE IF NOT EXISTS asset_reliability.telemetry_events (
     event_id TEXT PRIMARY KEY,
     scenario_id TEXT NOT NULL,
@@ -156,6 +162,7 @@ SET warning_threshold = EXCLUDED.warning_threshold,
     enabled = true,
     description = EXCLUDED.description;
 
+-- Durable incident, agent execution, conversation, and governed-action journal.
 CREATE TABLE IF NOT EXISTS asset_reliability.incidents (
     incident_id UUID PRIMARY KEY,
     scenario_id UUID NOT NULL REFERENCES asset_reliability.scenario_runs(scenario_id),
@@ -252,6 +259,8 @@ CREATE TABLE IF NOT EXISTS asset_reliability.component_heartbeats (
     details JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
+-- Maintain latest pump state and notify the App after every accepted telemetry write.
+-- The sequence guard prevents a delayed Kafka record from replacing newer live state.
 CREATE OR REPLACE FUNCTION asset_reliability.apply_telemetry_event()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -299,6 +308,7 @@ CREATE TRIGGER telemetry_event_applied
 AFTER INSERT OR UPDATE ON asset_reliability.telemetry_events
 FOR EACH ROW EXECUTE FUNCTION asset_reliability.apply_telemetry_event();
 
+-- The streaming table is write-heavy and retention deletes continuously create dead tuples.
 ALTER TABLE asset_reliability.telemetry_events SET (
     autovacuum_vacuum_scale_factor = 0,
     autovacuum_vacuum_threshold = 500,

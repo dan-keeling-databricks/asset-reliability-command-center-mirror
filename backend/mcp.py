@@ -1,3 +1,10 @@
+"""App-hosted MCP tool contracts and source implementations.
+
+Unity Gateway advertises a selected subset of these tools and applies policy before forwarding
+execution. The source still validates tool names and inputs because model output and callers are
+untrusted at this boundary.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -60,6 +67,8 @@ TOOLS: list[dict[str, Any]] = [
 
 
 class AssetReliabilityMCP:
+    """Minimal JSON-RPC MCP server over canonical repository operations."""
+
     def __init__(self, repository: CommandCenterRepository) -> None:
         self.repository = repository
 
@@ -109,6 +118,8 @@ class AssetReliabilityMCP:
         }
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Dispatch a validated MCP call and return structured content."""
+
         if name == "get_asset_telemetry":
             pump = await self._pump(arguments["asset_id"])
             return {

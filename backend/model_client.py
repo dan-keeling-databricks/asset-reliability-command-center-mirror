@@ -1,3 +1,5 @@
+"""Thin asynchronous client for Databricks-hosted chat and tool-calling endpoints."""
+
 from __future__ import annotations
 
 import asyncio
@@ -24,6 +26,8 @@ class ModelTurn:
 
 
 class DatabricksModelClient:
+    """Normalize Databricks model responses into the runtime's provider-neutral contract."""
+
     def __init__(self, host: str, client: httpx.AsyncClient | None = None) -> None:
         self.host = host.rstrip("/")
         if self.host and not self.host.startswith(("http://", "https://")):
@@ -52,6 +56,8 @@ class DatabricksModelClient:
         tools: list[dict[str, Any]] | None = None,
         token: str | None = None,
     ) -> ModelTurn:
+        """Execute one model turn, optionally exposing runtime-discovered function tools."""
+
         if token:
             headers = {"Authorization": f"Bearer {token}"}
         else:

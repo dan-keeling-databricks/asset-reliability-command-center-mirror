@@ -1,3 +1,5 @@
+"""Focused tests for bounded Lakebase query construction and repository invariants."""
+
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace

@@ -1,3 +1,9 @@
+"""Runtime protocol and deterministic local simulator used by the frontend development loop.
+
+The simulator emits representative agent activity without contacting Lakebase, model serving,
+Skills, or Unity Gateway. It is a UI fixture, not an authorization or production-behavior test.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -27,6 +33,8 @@ from backend.settings import Settings
 
 
 class CommandCenterRuntime(Protocol):
+    """Control and identity surface exposed by local and production runtimes."""
+
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
     async def restart(self) -> str: ...
@@ -74,6 +82,8 @@ def initial_snapshot() -> DashboardSnapshot:
 
 
 class LocalCommandCenterRuntime:
+    """Deterministic eight-pump scenario and activity-event simulator."""
+
     """Deterministic local adapter that exercises the full UI event contract."""
 
     def __init__(self, repository: CommandCenterRepository, settings: Settings) -> None:

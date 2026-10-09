@@ -1,1 +1,1 @@
-"""External and local service adapters."""
+"""Reserved package for alternative external-system adapters."""

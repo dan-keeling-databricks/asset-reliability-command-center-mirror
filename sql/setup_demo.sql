@@ -1,3 +1,7 @@
+-- Unity Gateway custom policy contract.
+-- Only the final work-order submission pauses for native human authorization; evidence reads
+-- and proposal preparation remain autonomous. The final SELECT is a deployment smoke test.
+
 CREATE OR REPLACE FUNCTION
   classic_stable_realtime_demos_catalog.asset_reliability_command_center.submit_work_order_policy(
     event VARIANT

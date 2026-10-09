@@ -1,3 +1,5 @@
+"""API contract tests for identity, operator control, scenarios, SSE, and MCP routing."""
+
 import time
 from contextlib import contextmanager
 
