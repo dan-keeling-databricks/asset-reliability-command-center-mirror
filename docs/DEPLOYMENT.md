@@ -13,6 +13,7 @@ The entry point is deliberately conservative:
 - clean `HEAD` is written to the ignored `.build-info.json` included in the App snapshot;
 - a deterministic runtime-only App directory is staged under `.artifacts/app`;
 - resources are reconciled in dependency order;
+- App-owned Lakebase migrations run as the existing App service principal before data-plane jobs;
 - both continuous streaming jobs restart on the deployed source;
 - post-deployment platform checks run before human acceptance begins.
 
@@ -106,23 +107,25 @@ The script applies these steps in order:
 
 1. A dedicated least-privilege compute policy and deployer-run UC grant job prepare the existing
    App service principal for only the required classic workloads and runtime volume. The policy
-   omits `data_security_mode` for Lakeflow compatibility; the two standalone job resources declare
-   `SINGLE_USER` directly.
-2. The producer, standalone RTM job, and continuous governed-history pipeline runner deploy under
-   that workload identity. The helper derives the synced source directory from bundle metadata,
-   idempotently grants the App service principal `CAN_READ`, verifies the effective permission,
-   and only then restarts the workloads on the new source revision.
-3. The script waits for a new healthy pipeline update and a published
+   omits `data_security_mode` for Lakeflow compatibility; the migration, producer, and RTM job
+   resources declare `SINGLE_USER` directly.
+2. The helper deploys a one-shot Lakebase migration job under that App service principal, grants
+   it read access to the synced bundle source, and runs it synchronously. The job applies
+   `sql/lakebase_schema.sql` and verifies required runtime columns; failure stops deployment.
+3. The producer, standalone RTM job, and continuous governed-history pipeline runner then deploy
+   under the same workload identity. The helper re-verifies source access and only then restarts
+   the workloads on the new source revision.
+4. The script waits for a new healthy pipeline update and a published
    `pump_telemetry_history` view.
-4. The idempotent grant job gives only the existing group access to the curated view, after which
+5. The idempotent grant job gives only the existing group access to the curated view, after which
    the complete bundle safely creates or updates Genie and its App binding.
-5. `databricks apps deploy` creates the App snapshot; App compute is restarted only if the newly
+6. `databricks apps deploy` creates the App snapshot; App compute is restarted only if the newly
    declared `dashboards.genie` and `ai-gateway` OBO scopes are not yet effective.
-6. The policy-function job updates the UC function.
-7. The governance helper reconciles the finalized Skill, App source permission, OAuth MCP source,
+7. The policy-function job updates the UC function.
+8. The governance helper reconciles the finalized Skill, App source permission, OAuth MCP source,
    MCP service tool selectors, and native `ASK` policy. Its probe must return `ASK` without source
    execution, after first proving exact tool discovery and a benign source read.
-8. Read-only checks inspect the App, bundle summary, and curated view.
+9. Read-only checks inspect the App, bundle summary, and curated view.
 
 ### App snapshot boundary
 
