@@ -27,7 +27,7 @@ existing `classic_stable_realtime_demos_catalog` and the dedicated
 | UI | Build the two-pane incident overlay, follow-up input, dynamic activity timeline, and footer totals | Complete |
 | UI | Render follow-up Markdown at full width and show an accessible in-progress response state | Complete |
 | UI | Unify model output in activity cards with a single persisted source of truth | Complete |
-| Quality | Pass Ruff, six pytest tests, TypeScript checking, and the Vite production build | Complete |
+| Quality | Pass the full Python suite, Ruff, TypeScript checking, and the Vite production build | Complete |
 | Quality | Validate desktop and 1280×800 remote layouts with no console or network errors | Complete |
 | Quality | Validate concurrent normal-transient reviews and retained no-action history | Complete |
 | Quality | Validate P-204 high-risk assessment, native `ASK`, approval replay, and scheduled work order | Complete |
@@ -39,6 +39,7 @@ existing `classic_stable_realtime_demos_catalog` and the dedicated
 | UI feedback round 1 | Unify incident conversation, prompt context, event icons, and execution timeline | In review |
 | Multi-user control | Persist one shared shift operator with audited, concurrency-safe handover | Complete on `feat/shared-shift-operator` |
 | Repository | Document architecture, manual deployment, and multi-agent worktree conventions | Complete |
+| Repository | Audit end-to-end technical debt and document Python/notebook assets | Complete on `feat/technical_debt_review` |
 | Repository | Publish the repository and feature branch to GitHub | Complete |
 
 ## Deployed resources
@@ -51,7 +52,7 @@ existing `classic_stable_realtime_demos_catalog` and the dedicated
 - Unity Catalog schema: `classic_stable_realtime_demos_catalog.asset_reliability_command_center`
 - Lakebase schema: `asset_reliability`
 - GitHub: `https://github.com/dan-keeling_data/asset-reliability-command-center`
-- Feature branch: `feat/lakebase_latency`
+- Deployed source branch: `main`
 
 ## Acceptance run
 
