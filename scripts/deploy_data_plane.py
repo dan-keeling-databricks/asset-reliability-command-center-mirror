@@ -1,10 +1,11 @@
 """Validate and dependency-order deployment of the governed telemetry data plane.
 
 The helper deliberately performs three deployment phases. First it grants the existing App
-service principal the minimum Unity Catalog privileges required by the workloads. It then
-deploys and restarts the continuous data-plane jobs and waits for a *new* pipeline update to
-publish the curated view. Only after the view exists does it grant human read access and
-deploy the Genie space and App binding. This ordering prevents first-deployment races.
+service principal the minimum privileges required by the workloads and runs the idempotent
+Lakebase migration as that schema-owning identity. It then deploys and restarts the continuous
+data-plane jobs and waits for a *new* pipeline update to publish the curated view. Only after
+the view exists does it grant human read access and deploy the Genie space and App binding.
+This ordering prevents both first-deployment and schema-upgrade races.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ DEFAULT_TIMEOUT_SECONDS = 1_200
 PIPELINE_KEY = "governed_telemetry_history"
 PIPELINE_RUNNER_KEY = "governed_telemetry_history_continuous"
 COMPUTE_POLICY_KEY = "asset_reliability_workloads"
+LAKEBASE_MIGRATION_KEY = "migrate_lakebase_schema"
 CURATED_VIEW = "pump_telemetry_history"
 FAILED_UPDATE_STATES = {"CANCELED", "FAILED"}
 READY_UPDATE_STATES = {"COMPLETED", "RUNNING"}
@@ -325,9 +327,14 @@ def deploy(args: argparse.Namespace) -> None:
         args,
         "cluster_policies.asset_reliability_workloads",
         "jobs.setup_runtime_principal_access",
+        f"jobs.{LAKEBASE_MIGRATION_KEY}",
     )
     run(bundle_command("run", args, "setup_runtime_principal_access"))
     verify_compute_policy_access(args)
+    grant_bundle_source_read(args)
+    # This checked run is the hard schema barrier. The producer and RTM restart calls below
+    # are unreachable if App-SP authentication, migration DDL, or contract verification fails.
+    run(bundle_command("run", args, LAKEBASE_MIGRATION_KEY))
 
     previous_update_ids = current_pipeline_update_ids(args)
 

@@ -98,6 +98,12 @@ synced below the human deployer's bundle directory, the deployment helper also d
 directory from bundle metadata and grants the same service principal `CAN_READ` before any job or
 pipeline restart; this is a workspace-object permission, distinct from Unity Catalog privileges.
 
+Lakebase schema upgrades use a separate one-shot classic job with the same App service-principal
+run-as identity. It applies the repository's idempotent PostgreSQL migration, verifies the exact
+lease and approval-claim columns required by current code, and must succeed before the deployment
+helper can restart the producer, standalone RTM, or pipeline runner. This preserves App ownership
+of the operational schema and prevents new workload source from racing an older database contract.
+
 ## Databricks App and two distinct AI experiences
 
 ### Autonomous reliability agent

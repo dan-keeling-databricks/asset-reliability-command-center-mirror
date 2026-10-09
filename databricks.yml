@@ -188,6 +188,43 @@ resources:
               schema_fqn: ${var.catalog}.${var.schema}
               volume_fqn: ${var.catalog}.${var.schema}.${var.volume}
 
+    migrate_lakebase_schema:
+      name: Asset Reliability — migrate App-owned Lakebase schema
+      description: Applies idempotent Lakebase DDL as the existing App service principal.
+      run_as:
+        service_principal_name: ${var.app_service_principal_client_id}
+      job_clusters:
+        - job_cluster_key: migration_cluster
+          new_cluster:
+            policy_id: ${resources.cluster_policies.asset_reliability_workloads.id}
+            spark_version: 17.3.x-scala2.13
+            node_type_id: i3.xlarge
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            enable_elastic_disk: true
+            spark_conf:
+              spark.master: local[*, 4]
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+              Workload: asset-reliability-lakebase-migration
+            aws_attributes:
+              availability: ON_DEMAND
+      tasks:
+        - task_key: apply_schema
+          job_cluster_key: migration_cluster
+          notebook_task:
+            notebook_path: ./src/migrations/apply_lakebase_schema.py
+            base_parameters:
+              lakebase_endpoint: ${var.lakebase_endpoint_path}
+              lakebase_database: databricks_postgres
+              lakebase_schema: ${var.lakebase_schema}
+          libraries:
+            - pypi:
+                package: databricks-sdk==0.142.0
+            - pypi:
+                package: psycopg[binary]==3.2.10
+
     telemetry_producer:
       name: Asset Reliability — continuous pump telemetry producer
       description: Polls Lakebase scenario commands and publishes eight-pump telemetry to Kafka.

@@ -7,10 +7,13 @@ import re
 from argparse import Namespace
 from pathlib import Path
 
+import pytest
+
 from scripts import deploy_data_plane
 
 ROOT = Path(__file__).resolve().parents[1]
 PIPELINE = ROOT / "src" / "pipelines" / "governed_telemetry_history.sql"
+LAKEBASE_MIGRATION = ROOT / "src" / "migrations" / "apply_lakebase_schema.py"
 GENIE = ROOT / "genie" / "fleet_telemetry_analyst.geniespace.json"
 
 
@@ -122,24 +125,47 @@ def test_bundle_uses_classic_pipeline_native_genie_and_obo_scope() -> None:
     assert "fleet_telemetry_analyst:" in bundle
     assert "default: /Shared" in bundle
     assert "space_id: ${resources.genie_spaces.fleet_telemetry_analyst.id}" in bundle
-    assert bundle.count("service_principal_name: ${var.app_service_principal_client_id}") == 6
+    assert bundle.count("service_principal_name: ${var.app_service_principal_client_id}") == 7
     assert "asset_reliability_workloads:" in bundle
     assert '"minValue": 0' in bundle
     assert '"maxValue": 1' in bundle
     assert '"value": "i3.xlarge"' in bundle
     assert '"value": "ON_DEMAND"' in bundle
-    # Lakeflow Declarative Pipelines reject policies that define data_security_mode. The two
+    # Lakeflow Declarative Pipelines reject policies that define data_security_mode. The three
     # standalone job clusters still set SINGLE_USER explicitly in their resource definitions.
     assert '"data_security_mode": {' not in bundle
-    assert bundle.count("data_security_mode: SINGLE_USER") == 2
+    assert bundle.count("data_security_mode: SINGLE_USER") == 3
     assert bundle.count(
         "policy_id: ${resources.cluster_policies.asset_reliability_workloads.id}"
-    ) == 3
+    ) == 4
     assert "- dashboards.genie" in bundle
     assert "DATABRICKS_GENIE_SPACE_ID" in app
     assert "GENIE_SOURCE_LABEL" in app
     assert "valueFrom: fleet-telemetry-genie" in app
     assert "dan.keeling@" not in app
+
+
+def test_lakebase_migration_runs_as_app_sp_and_verifies_runtime_contract() -> None:
+    bundle = (ROOT / "databricks.yml").read_text()
+    source = LAKEBASE_MIGRATION.read_text()
+
+    migration_resource = bundle.split("    migrate_lakebase_schema:", maxsplit=1)[1].split(
+        "    telemetry_producer:", maxsplit=1
+    )[0]
+    assert "service_principal_name: ${var.app_service_principal_client_id}" in migration_resource
+    assert "notebook_path: ./src/migrations/apply_lakebase_schema.py" in migration_resource
+    assert "lakebase_schema: ${var.lakebase_schema}" in migration_resource
+    assert 'workspace_path.parents[2] / "sql" / "lakebase_schema.sql"' in source
+    assert "generate_database_credential" in source
+    assert "information_schema.columns" in source
+    for required_column in (
+        "lease_expires_at",
+        "claim_version",
+        "attempt_count",
+        "approval_claim_id",
+        "approval_claim_version",
+    ):
+        assert required_column in source
 
 
 def test_access_grant_exposes_only_the_curated_view() -> None:
@@ -224,6 +250,8 @@ def test_deployment_helper_orders_identity_pipeline_grant_and_genie(monkeypatch)
         "select",
         "run",
         "verify_policy",
+        "grant_source_read",
+        "run",
         "capture_updates",
         "select",
         "grant_source_read",
@@ -238,14 +266,50 @@ def test_deployment_helper_orders_identity_pipeline_grant_and_genie(monkeypatch)
         "select",
         "cluster_policies.asset_reliability_workloads",
         "jobs.setup_runtime_principal_access",
+        "jobs.migrate_lakebase_schema",
     )
-    assert events[6:9] == [
+    assert "migrate_lakebase_schema" in events[4]
+    assert events[8:11] == [
         ("restart", "telemetry_producer"),
         ("restart", "telemetry_rtm"),
         ("restart", "governed_telemetry_history_continuous"),
     ]
-    assert "setup_telemetry_access" in events[10]
+    assert "setup_telemetry_access" in events[12]
     assert events[-1][-1] == "--auto-approve"
+
+
+def test_migration_failure_prevents_every_continuous_restart(monkeypatch) -> None:
+    args = Namespace(
+        profile="explicit-profile",
+        target="dev",
+        access_group="existing-group",
+        app_service_principal_client_id="existing-app-sp",
+        catalog="catalog",
+        schema="schema",
+        timeout_seconds=60,
+        poll_seconds=0,
+    )
+    restarted: list[str] = []
+
+    monkeypatch.setattr(deploy_data_plane, "selective_deploy", lambda *_args: None)
+    monkeypatch.setattr(deploy_data_plane, "verify_compute_policy_access", lambda _args: None)
+    monkeypatch.setattr(deploy_data_plane, "grant_bundle_source_read", lambda _args: None)
+    monkeypatch.setattr(
+        deploy_data_plane,
+        "restart_continuous_job",
+        lambda _args, key: restarted.append(key),
+    )
+
+    def fail_migration(command, **_kwargs):
+        if deploy_data_plane.LAKEBASE_MIGRATION_KEY in command:
+            raise RuntimeError("migration failed")
+        return None
+
+    monkeypatch.setattr(deploy_data_plane, "run", fail_migration)
+
+    with pytest.raises(RuntimeError, match="migration failed"):
+        deploy_data_plane.deploy(args)
+    assert restarted == []
 
 
 def test_bundle_source_read_is_derived_granted_and_verified(monkeypatch) -> None:

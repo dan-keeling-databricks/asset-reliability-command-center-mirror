@@ -32,5 +32,6 @@ target-version = "py311"
 select = ["E", "F", "I", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
+"src/migrations/apply_lakebase_schema.py" = ["F821"]
 "src/producer/pump_telemetry_producer.py" = ["F821"]
 "src/streaming/kafka_to_lakebase_rtm.py" = ["F821"]
