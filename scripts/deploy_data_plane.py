@@ -96,6 +96,98 @@ def resource_id(args: argparse.Namespace, kind: str, key: str) -> str:
     return str(identifier)
 
 
+def bundle_source_directory(args: argparse.Namespace) -> tuple[str, str]:
+    """Resolve the synced bundle directory and its workspace object ID.
+
+    Bundle resource definitions point jobs and pipelines at notebooks below
+    ``workspace.file_path``.  A workload running as the App service principal therefore
+    needs explicit read access to that directory; access inherited by the human deployer is
+    not sufficient.  Resolving the path from bundle metadata keeps this helper portable
+    across users, targets, and workspaces.
+    """
+
+    summary = bundle_summary(args)
+    source_path = summary.get("workspace", {}).get("file_path")
+    if not source_path:
+        raise RuntimeError("Bundle summary does not expose workspace.file_path")
+    status = run_json(
+        workspace_command(
+            args,
+            "workspace",
+            "get-status",
+            str(source_path),
+            "--output",
+            "json",
+        )
+    )
+    object_id = status.get("object_id")
+    if not object_id:
+        raise RuntimeError(f"Workspace source directory {source_path} has no object ID")
+    return str(source_path), str(object_id)
+
+
+def grant_bundle_source_read(args: argparse.Namespace) -> None:
+    """Idempotently grant the workload identity read access to synced bundle sources."""
+
+    source_path, object_id = bundle_source_directory(args)
+    access_control = {
+        "access_control_list": [
+            {
+                "service_principal_name": args.app_service_principal_client_id,
+                "permission_level": "CAN_READ",
+            }
+        ]
+    }
+    run_json(
+        workspace_command(
+            args,
+            "workspace",
+            "update-permissions",
+            "directories",
+            object_id,
+            "--json",
+            json.dumps(access_control, sort_keys=True),
+            "--output",
+            "json",
+        )
+    )
+
+    permissions = run_json(
+        workspace_command(
+            args,
+            "workspace",
+            "get-permissions",
+            "directories",
+            object_id,
+            "--output",
+            "json",
+        )
+    )
+    matching = [
+        entry
+        for entry in permissions.get("access_control_list", [])
+        if entry.get("service_principal_name") == args.app_service_principal_client_id
+    ]
+    can_read = any(
+        permission.get("permission_level") in {"CAN_READ", "CAN_RUN", "CAN_EDIT", "CAN_MANAGE"}
+        for entry in matching
+        for permission in entry.get("all_permissions", [])
+    )
+    if not can_read:
+        raise RuntimeError("App service principal does not have read access to bundle sources")
+
+    print(
+        json.dumps(
+            {
+                "bundle_source_path": source_path,
+                "principal_suffix": args.app_service_principal_client_id[-6:],
+                "permission": "CAN_READ",
+                "verified": True,
+            }
+        )
+    )
+
+
 def current_pipeline_update_ids(args: argparse.Namespace) -> set[str]:
     """Return update IDs already known before this deployment, or an empty set initially."""
 
@@ -249,6 +341,7 @@ def deploy(args: argparse.Namespace) -> None:
         "jobs.telemetry_producer",
         "jobs.telemetry_rtm",
     )
+    grant_bundle_source_read(args)
     restart_continuous_job(args, "telemetry_producer")
     restart_continuous_job(args, "telemetry_rtm")
     restart_continuous_job(args, PIPELINE_RUNNER_KEY)

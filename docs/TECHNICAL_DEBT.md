@@ -66,7 +66,8 @@ drop metrics before production use.
 **Resolved.** `scripts/deploy.py` performs locked installs, the complete test/build gate, frontend
 freshness verification, clean-tree validation, and deterministic build-info generation before
 the App snapshot is deployed. It readiness-gates the producer, RTM, and governed-history
-continuous jobs and exposes the deployed commit through `/api/build-info`.
+continuous jobs, grants their service principal verified read access to the synced bundle source
+directory, and exposes the deployed commit through `/api/build-info`.
 
 ### Architecture and runbook drift
 

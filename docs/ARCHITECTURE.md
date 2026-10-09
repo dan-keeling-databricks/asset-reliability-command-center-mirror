@@ -91,7 +91,10 @@ The producer, standalone RTM job, and continuous pipeline-runner job execute as 
 service principal. A bundle-managed least-privilege compute policy limits them to the approved
 classic `i3.xlarge` shapes, worker counts, runtimes, and on-demand availability. A deployer-run,
 idempotent grant job gives that identity only the UC schema creation and runtime-volume access
-needed by those workloads before their run-as identity is changed.
+needed by those workloads before their run-as identity is changed. Because their notebooks are
+synced below the human deployer's bundle directory, the deployment helper also derives that
+directory from bundle metadata and grants the same service principal `CAN_READ` before any job or
+pipeline restart; this is a workspace-object permission, distinct from Unity Catalog privileges.
 
 ## Databricks App and two distinct AI experiences
 

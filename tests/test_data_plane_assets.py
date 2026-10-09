@@ -190,6 +190,11 @@ def test_deployment_helper_orders_identity_pipeline_grant_and_genie(monkeypatch)
     )
     monkeypatch.setattr(
         deploy_data_plane,
+        "grant_bundle_source_read",
+        lambda _args: events.append(("grant_source_read",)),
+    )
+    monkeypatch.setattr(
+        deploy_data_plane,
         "wait_for_pipeline_publication",
         lambda _args, updates: events.append(("wait", *sorted(updates))),
     )
@@ -203,6 +208,7 @@ def test_deployment_helper_orders_identity_pipeline_grant_and_genie(monkeypatch)
         "verify_policy",
         "capture_updates",
         "select",
+        "grant_source_read",
         "restart",
         "restart",
         "restart",
@@ -215,13 +221,73 @@ def test_deployment_helper_orders_identity_pipeline_grant_and_genie(monkeypatch)
         "cluster_policies.asset_reliability_workloads",
         "jobs.setup_runtime_principal_access",
     )
-    assert events[5:8] == [
+    assert events[6:9] == [
         ("restart", "telemetry_producer"),
         ("restart", "telemetry_rtm"),
         ("restart", "governed_telemetry_history_continuous"),
     ]
-    assert "setup_telemetry_access" in events[9]
+    assert "setup_telemetry_access" in events[10]
     assert events[-1][-1] == "--auto-approve"
+
+
+def test_bundle_source_read_is_derived_granted_and_verified(monkeypatch) -> None:
+    args = Namespace(
+        profile="explicit-profile",
+        target="dev",
+        access_group="existing-group",
+        app_service_principal_client_id="existing-app-sp",
+        catalog="catalog",
+        schema="schema",
+    )
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(
+        deploy_data_plane,
+        "bundle_summary",
+        lambda _args: {"workspace": {"file_path": "/Workspace/bundle/dev/files"}},
+    )
+
+    def fake_run_json(command: list[str]) -> dict[str, object]:
+        commands.append(command)
+        if "get-status" in command:
+            return {"object_id": 123, "path": "/Workspace/bundle/dev/files"}
+        if "update-permissions" in command:
+            return {}
+        return {
+            "access_control_list": [
+                {
+                    "service_principal_name": "existing-app-sp",
+                    "all_permissions": [{"permission_level": "CAN_READ"}],
+                }
+            ]
+        }
+
+    monkeypatch.setattr(deploy_data_plane, "run_json", fake_run_json)
+
+    deploy_data_plane.grant_bundle_source_read(args)
+
+    assert commands[0][1:4] == ["workspace", "get-status", "/Workspace/bundle/dev/files"]
+    assert commands[1][1:5] == [
+        "workspace",
+        "update-permissions",
+        "directories",
+        "123",
+    ]
+    payload = json.loads(commands[1][commands[1].index("--json") + 1])
+    assert payload == {
+        "access_control_list": [
+            {
+                "permission_level": "CAN_READ",
+                "service_principal_name": "existing-app-sp",
+            }
+        ]
+    }
+    assert commands[2][1:5] == [
+        "workspace",
+        "get-permissions",
+        "directories",
+        "123",
+    ]
 
 
 def test_publication_wait_requires_new_healthy_update_and_view(monkeypatch) -> None:

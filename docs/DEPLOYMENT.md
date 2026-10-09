@@ -104,7 +104,9 @@ The script applies these steps in order:
 1. A dedicated least-privilege compute policy and deployer-run UC grant job prepare the existing
    App service principal for only the required classic workloads and runtime volume.
 2. The producer, standalone RTM job, and continuous governed-history pipeline runner deploy under
-   that workload identity and restart on the new source revision.
+   that workload identity. The helper derives the synced source directory from bundle metadata,
+   idempotently grants the App service principal `CAN_READ`, verifies the effective permission,
+   and only then restarts the workloads on the new source revision.
 3. The script waits for a new healthy pipeline update and a published
    `pump_telemetry_history` view.
 4. The idempotent grant job gives only the existing group access to the curated view, after which
