@@ -49,7 +49,7 @@ All operational data is synthetic. No customer data belongs in this repository.
 
 ## Local development
 
-Prerequisites are `uv`, Node.js/npm, and Databricks CLI 0.250 or later.
+Prerequisites are `uv`, Node.js/npm, and Databricks CLI 1.17 or later.
 
 ```bash
 uv sync --locked

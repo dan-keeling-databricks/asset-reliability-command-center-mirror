@@ -38,7 +38,7 @@ actual target environment; do not silently rely on a CLI default profile.
 
 ## Prerequisites
 
-- Databricks CLI 0.250 or later with OAuth authentication for the intended workspace.
+- Databricks CLI 1.17 or later with OAuth authentication for the intended workspace.
 - `uv`, Node.js, and npm.
 - Permission to update the App, jobs, pipeline, Genie Agent, Lakebase project, UC schema, Skill,
   MCP source connection/service, and policy function.
@@ -62,7 +62,8 @@ uv run python scripts/deploy.py \
   --access-group asset-reliability-command-center-operator \
   --catalog classic_stable_realtime_demos_catalog \
   --schema asset_reliability_command_center \
-  --app-name asset-reliability-center
+  --app-name asset-reliability-center \
+  --app-service-principal-client-id bd5178cb-8774-4d77-bc63-b4f491716d0b
 ```
 
 Preflight performs the following checks and stops without changing workspace resources:
@@ -70,8 +71,9 @@ Preflight performs the following checks and stops without changing workspace res
 1. Require a clean Git worktree and resolve the exact commit.
 2. Generate and reread `.build-info.json` containing only that commit.
 3. Validate the Databricks CLI version.
-4. Resolve the explicit profile, compare its host with `--expected-host`, and verify the deploying
-   user belongs to the supplied existing group.
+4. Resolve the explicit profile, compare its host with `--expected-host`, verify the deploying
+   user belongs to the supplied existing group, and confirm the explicit workload identity is the
+   existing App service principal.
 5. Run `uv sync --locked` and `npm ci`.
 6. Run Ruff, all Pytest tests, TypeScript checking, and the Vite production build.
 7. Confirm `requirements.txt` matches `uv.lock` and `frontend/dist` is newer than every frontend
@@ -93,21 +95,26 @@ uv run python scripts/deploy.py \
   --catalog classic_stable_realtime_demos_catalog \
   --schema asset_reliability_command_center \
   --app-name asset-reliability-center \
+  --app-service-principal-client-id bd5178cb-8774-4d77-bc63-b4f491716d0b \
   --execute
 ```
 
 The script applies these steps in order:
 
-1. `databricks apps deploy` reconciles bundle resources and creates a running App snapshot.
-2. The continuous governed-history pipeline starts or restarts on classic compute.
-3. The script waits until `pump_telemetry_history` is visible in Unity Catalog.
-4. The idempotent grant job gives only the existing group access to the curated view.
-5. The policy-function job updates the UC function.
-6. The governance helper reconciles the finalized Skill, App source permission, OAuth MCP source,
+1. A dedicated least-privilege compute policy and deployer-run UC grant job prepare the existing
+   App service principal for only the required classic workloads and runtime volume.
+2. The producer, standalone RTM job, and continuous governed-history pipeline runner deploy under
+   that workload identity and restart on the new source revision.
+3. The script waits for a new healthy pipeline update and a published
+   `pump_telemetry_history` view.
+4. The idempotent grant job gives only the existing group access to the curated view, after which
+   the complete bundle safely creates or updates Genie and its App binding.
+5. `databricks apps deploy` creates the App snapshot; App compute is restarted only if the newly
+   declared `dashboards.genie` and `ai-gateway` OBO scopes are not yet effective.
+6. The policy-function job updates the UC function.
+7. The governance helper reconciles the finalized Skill, App source permission, OAuth MCP source,
    MCP service tool selectors, and native `ASK` policy. Its probe must return `ASK` without source
-   execution.
-7. The producer and standalone RTM jobs restart so their active runs use the deployed notebook
-   source rather than a previous workspace snapshot.
+   execution, after first proving exact tool discovery and a benign source read.
 8. Read-only checks inspect the App, bundle summary, and curated view.
 
 The pipeline wait defaults to ten minutes. Override only when classic-compute startup routinely

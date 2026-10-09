@@ -24,7 +24,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD_INFO = ROOT / ".build-info.json"
-MINIMUM_CLI_VERSION = (0, 250, 0)
+MINIMUM_CLI_VERSION = (1, 17, 0)
 
 
 @dataclass(frozen=True)
@@ -38,6 +38,8 @@ class DeploymentInputs:
     catalog: str
     schema: str
     app_name: str
+    app_service_principal_client_id: str
+    table_timeout_seconds: int
 
     @property
     def bundle_flags(self) -> list[str]:
@@ -48,6 +50,12 @@ class DeploymentInputs:
             self.profile,
             "--var",
             f"app_access_group={self.access_group}",
+            "--var",
+            f"app_service_principal_client_id={self.app_service_principal_client_id}",
+            "--var",
+            f"catalog={self.catalog}",
+            "--var",
+            f"schema={self.schema}",
         ]
 
 
@@ -105,6 +113,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--catalog", required=True, help="Project Unity Catalog catalog.")
     parser.add_argument("--schema", required=True, help="Project Unity Catalog schema.")
     parser.add_argument("--app-name", required=True, help="Databricks App name.")
+    parser.add_argument(
+        "--app-service-principal-client-id",
+        required=True,
+        help="Existing Databricks App service-principal application ID.",
+    )
     parser.add_argument(
         "--execute",
         action="store_true",
@@ -167,7 +180,7 @@ def assert_cli_version(runner: Runner) -> None:
 
 
 def verify_profile(runner: Runner, inputs: DeploymentInputs) -> dict[str, Any]:
-    """Confirm the selected profile resolves to the intended workspace and group member."""
+    """Confirm workspace, human group membership, and the existing App workload identity."""
 
     auth = runner.json(
         ["databricks", "auth", "describe", "--profile", inputs.profile, "-o", "json"]
@@ -191,6 +204,24 @@ def verify_profile(runner: Runner, inputs: DeploymentInputs) -> dict[str, Any]:
     if inputs.access_group not in groups:
         raise RuntimeError(
             f"Deploying user is not a member of existing group {inputs.access_group!r}"
+        )
+    app = runner.json(
+        [
+            "databricks",
+            "apps",
+            "get",
+            inputs.app_name,
+            "--profile",
+            inputs.profile,
+            "-o",
+            "json",
+        ]
+    )
+    actual_principal = app.get("service_principal_client_id")
+    if actual_principal != inputs.app_service_principal_client_id:
+        raise RuntimeError(
+            f"App {inputs.app_name!r} uses service principal {actual_principal!r}, not the "
+            "explicit deployment input"
         )
     return user
 
@@ -256,19 +287,7 @@ def run_quality_gate(runner: Runner, inputs: DeploymentInputs) -> None:
         runner.run(command)
     assert_requirements_current(runner)
     assert_frontend_fresh()
-    runner.run(
-        [
-            "databricks",
-            "bundle",
-            "validate",
-            "--target",
-            inputs.target,
-            "--profile",
-            inputs.profile,
-            "--var",
-            f"app_access_group={inputs.access_group}",
-        ]
-    )
+    runner.run(["databricks", "bundle", "validate", *inputs.bundle_flags])
     runner.run(["git", "diff", "--exit-code"])
 
 
@@ -278,24 +297,32 @@ def deployment_steps(inputs: DeploymentInputs) -> list[Step]:
     flags = inputs.bundle_flags
     return [
         Step(
-            "Deploy bundle resources and the App snapshot",
-            ["databricks", "apps", "deploy", *flags, "--auto-approve"],
-        ),
-        Step(
-            "Start or restart the governed telemetry history pipeline",
+            "Deploy the governed data plane in readiness-gated phases",
             [
-                "databricks",
-                "bundle",
+                "uv",
                 "run",
-                *flags,
-                "--restart",
-                "--no-wait",
-                "governed_telemetry_history",
+                "python",
+                "scripts/deploy_data_plane.py",
+                "--profile",
+                inputs.profile,
+                "--target",
+                inputs.target,
+                "--access-group",
+                inputs.access_group,
+                "--app-service-principal-client-id",
+                inputs.app_service_principal_client_id,
+                "--catalog",
+                inputs.catalog,
+                "--schema",
+                inputs.schema,
+                "--timeout-seconds",
+                str(inputs.table_timeout_seconds),
+                "--deploy",
             ],
         ),
         Step(
-            "Grant the existing group access to the curated telemetry view",
-            ["databricks", "bundle", "run", *flags, "setup_telemetry_access"],
+            "Deploy the App snapshot after Genie and telemetry are ready",
+            ["databricks", "apps", "deploy", *flags, "--auto-approve"],
         ),
         Step(
             "Create or update the Unity Gateway policy function",
@@ -306,52 +333,47 @@ def deployment_steps(inputs: DeploymentInputs) -> list[Step]:
             ["uv", "run", "python", "scripts/deploy_governance.py"],
             environment={"DATABRICKS_CONFIG_PROFILE": inputs.profile},
         ),
-        Step(
-            "Restart the continuous producer with the deployed source revision",
-            [
-                "databricks",
-                "bundle",
-                "run",
-                *flags,
-                "--restart",
-                "--no-wait",
-                "telemetry_producer",
-            ],
-        ),
-        Step(
-            "Restart RTM ingestion with the deployed source revision",
-            [
-                "databricks",
-                "bundle",
-                "run",
-                *flags,
-                "--restart",
-                "--no-wait",
-                "telemetry_rtm",
-            ],
-        ),
     ]
 
 
-def wait_for_curated_view(
-    runner: Runner,
-    inputs: DeploymentInputs,
-    *,
-    timeout_seconds: int,
+def ensure_app_user_scopes(
+    runner: Runner, inputs: DeploymentInputs, *, timeout_seconds: int = 600
 ) -> None:
-    """Wait until the pipeline has published the view needed by the grant job and Genie."""
+    """Restart App compute only when newly declared OBO scopes are not yet effective."""
 
-    table = f"{inputs.catalog}.{inputs.schema}.pump_telemetry_history"
+    get_command = [
+        "databricks",
+        "apps",
+        "get",
+        inputs.app_name,
+        "--profile",
+        inputs.profile,
+        "-o",
+        "json",
+    ]
+    required = {"ai-gateway", "dashboards.genie"}
+    app = runner.json(get_command)
+    effective = set(app.get("effective_user_api_scopes", []))
+    if required <= effective:
+        return
+
+    runner.run(
+        ["databricks", "apps", "stop", inputs.app_name, "--profile", inputs.profile]
+    )
+    runner.run(
+        ["databricks", "apps", "start", inputs.app_name, "--profile", inputs.profile]
+    )
     deadline = time.monotonic() + timeout_seconds
-    command = ["databricks", "tables", "get", table, "--profile", inputs.profile]
-    while True:
-        try:
-            runner.run(command, capture=True)
+    while time.monotonic() < deadline:
+        app = runner.json(get_command)
+        effective = set(app.get("effective_user_api_scopes", []))
+        state = (app.get("app_status") or {}).get("state")
+        if state == "RUNNING" and required <= effective:
             return
-        except subprocess.CalledProcessError:
-            if time.monotonic() >= deadline:
-                raise RuntimeError(f"Timed out waiting for governed view {table}") from None
-            time.sleep(5)
+        time.sleep(5)
+    raise RuntimeError(
+        "App did not become RUNNING with ai-gateway and dashboards.genie OBO scopes"
+    )
 
 
 def verify_live_resources(runner: Runner, inputs: DeploymentInputs, commit: str) -> None:
@@ -360,19 +382,7 @@ def verify_live_resources(runner: Runner, inputs: DeploymentInputs, commit: str)
     runner.run(
         ["databricks", "apps", "get", inputs.app_name, "--profile", inputs.profile]
     )
-    runner.run(
-        [
-            "databricks",
-            "bundle",
-            "summary",
-            "--target",
-            inputs.target,
-            "--profile",
-            inputs.profile,
-            "--var",
-            f"app_access_group={inputs.access_group}",
-        ]
-    )
+    runner.run(["databricks", "bundle", "summary", *inputs.bundle_flags])
     runner.run(
         [
             "databricks",
@@ -399,6 +409,8 @@ def main() -> None:
         catalog=args.catalog,
         schema=args.schema,
         app_name=args.app_name,
+        app_service_principal_client_id=args.app_service_principal_client_id,
+        table_timeout_seconds=args.table_timeout_seconds,
     )
     runner = Runner()
 
@@ -420,12 +432,8 @@ def main() -> None:
     for step in deployment_steps(inputs):
         print(f"\n==> {step.label}")
         runner.run(step.command, environment=step.environment)
-        if step.label.startswith("Start or restart the governed"):
-            wait_for_curated_view(
-                runner,
-                inputs,
-                timeout_seconds=args.table_timeout_seconds,
-            )
+        if step.label.startswith("Deploy the App snapshot"):
+            ensure_app_user_scopes(runner, inputs)
     verify_live_resources(runner, inputs, commit)
 
 

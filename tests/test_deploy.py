@@ -25,6 +25,8 @@ def inputs() -> DeploymentInputs:
         catalog="demo_catalog",
         schema="asset_reliability",
         app_name="asset-reliability-center",
+        app_service_principal_client_id="existing-app-sp",
+        table_timeout_seconds=900,
     )
 
 
@@ -33,19 +35,20 @@ def test_deployment_steps_are_explicit_and_dependency_ordered() -> None:
     labels = [step.label for step in steps]
 
     assert labels == [
-        "Deploy bundle resources and the App snapshot",
-        "Start or restart the governed telemetry history pipeline",
-        "Grant the existing group access to the curated telemetry view",
+        "Deploy the governed data plane in readiness-gated phases",
+        "Deploy the App snapshot after Genie and telemetry are ready",
         "Create or update the Unity Gateway policy function",
         "Reconcile the Skill, MCP source, service, selectors, and ASK policy",
-        "Restart the continuous producer with the deployed source revision",
-        "Restart RTM ingestion with the deployed source revision",
     ]
     for step in steps:
         if step.command[0] == "databricks":
             assert "--profile" in step.command
             assert "explicit-profile" in step.command
-    assert steps[4].environment == {"DATABRICKS_CONFIG_PROFILE": "explicit-profile"}
+    assert steps[3].environment == {"DATABRICKS_CONFIG_PROFILE": "explicit-profile"}
+    assert "--app-service-principal-client-id" in steps[0].command
+    assert "existing-app-sp" in steps[0].command
+    assert "--timeout-seconds" in steps[0].command
+    assert "900" in steps[0].command
 
 
 def test_build_info_contains_only_the_selected_commit(tmp_path: Path) -> None:

@@ -87,6 +87,12 @@ Unity Catalog supplies ownership, three-part naming, comments, lineage, and perm
 existing `asset-reliability-command-center-operator` group receives `USE CATALOG`, `USE SCHEMA`,
 and `SELECT` only on the curated view; no additional read-only group is created.
 
+The producer, standalone RTM job, and continuous pipeline-runner job execute as the existing App
+service principal. A bundle-managed least-privilege compute policy limits them to the approved
+classic `i3.xlarge` shapes, worker counts, runtimes, and on-demand availability. A deployer-run,
+idempotent grant job gives that identity only the UC schema creation and runtime-volume access
+needed by those workloads before their run-as identity is changed.
+
 ## Databricks App and two distinct AI experiences
 
 ### Autonomous reliability agent
@@ -132,12 +138,14 @@ receipt containing the elicitation identifier, request hash, approving subject, 
 timestamps. Denial, repeated `ASK`, and transport errors cannot be represented as success.
 
 The deployment helper reconciles the Skill, MCP source connection, selected tools, service
-policy, and App-source permission. Its non-destructive policy probe must receive `ASK` with
-`execution=not executed` before governance deployment is considered valid.
+policy, and App-source permission. Its probe first requires exact tool discovery and a benign
+source read, then must receive `ASK` with `execution=not executed` before governance deployment is
+considered valid.
 
 OBO access tokens live only in process memory and are never logged or persisted. Identity subjects
-are retained for audit. Restart and operator handover cancel and await active agent tasks before a
-new scenario is created, preventing work from crossing scenario boundaries.
+are retained for audit. Restart and operator handover cancel and await local tasks, while active
+scenario/run predicates and UUID/version approval claims fence delayed work from other replicas
+before any state transition or governed completion.
 
 ## Lakebase operational model
 
