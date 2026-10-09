@@ -120,7 +120,7 @@ The script applies these steps in order:
 5. The idempotent grant job gives only the existing group access to the curated view, after which
    the complete bundle safely creates or updates Genie and its App binding.
 6. `databricks apps deploy` creates the App snapshot; App compute is restarted only if the newly
-   declared `dashboards.genie` and `ai-gateway` OBO scopes are not yet effective.
+   declared `genie` and `ai-gateway` OBO scopes are not yet effective.
 7. The policy-function job updates the UC function.
 8. The governance helper reconciles the finalized Skill, App source permission, OAuth MCP source,
    MCP service tool selectors, and native `ASK` policy. Its probe must return `ASK` without source

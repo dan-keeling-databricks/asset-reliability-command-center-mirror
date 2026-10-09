@@ -453,7 +453,7 @@ def ensure_app_user_scopes(
         "-o",
         "json",
     ]
-    required = {"ai-gateway", "dashboards.genie"}
+    required = {"ai-gateway", "genie"}
     app = runner.json(get_command)
     effective = set(app.get("effective_user_api_scopes", []))
     if required <= effective:
@@ -474,7 +474,7 @@ def ensure_app_user_scopes(
             return
         time.sleep(5)
     raise RuntimeError(
-        "App did not become RUNNING with ai-gateway and dashboards.genie OBO scopes"
+        "App did not become RUNNING with ai-gateway and genie OBO scopes"
     )
 
 

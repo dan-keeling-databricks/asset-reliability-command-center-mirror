@@ -385,7 +385,7 @@ resources:
       forward_user_access_token: true
       user_api_scopes:
         - ai-gateway
-        - dashboards.genie
+        - genie
       resources:
         - name: lakebase
           postgres:

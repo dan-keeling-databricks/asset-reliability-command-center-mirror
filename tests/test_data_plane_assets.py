@@ -139,7 +139,8 @@ def test_bundle_uses_classic_pipeline_native_genie_and_obo_scope() -> None:
     assert bundle.count(
         "policy_id: ${resources.cluster_policies.asset_reliability_workloads.id}"
     ) == 4
-    assert "- dashboards.genie" in bundle
+    assert "- genie" in bundle
+    assert "dashboards.genie" not in bundle
     assert "DATABRICKS_GENIE_SPACE_ID" in app
     assert "GENIE_SOURCE_LABEL" in app
     assert "valueFrom: fleet-telemetry-genie" in app
