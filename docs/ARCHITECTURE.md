@@ -1,189 +1,186 @@
 # Technical architecture
 
-## Purpose and design principles
+## Scope and design principles
 
-The Asset Reliability Command Center is a ten-minute Energy, Utilities, and Manufacturing
-demo. It combines continuous pump telemetry, autonomous anomaly review, and a governed
-maintenance action. The command center is the primary experience; alerts invoke agents
-without an operator prompt, and the incident overlay renders only activity emitted by the
-runtime.
+The Asset Reliability Command Center is an end-to-end process-manufacturing prototype. It
+combines continuous synthetic pump telemetry, low-latency operational serving, governed
+historical analytics, autonomous incident response, and a real human-approval boundary.
 
-The architecture deliberately separates telemetry production, real-time ingestion,
-operational state, application delivery, agent reasoning, and governance. Unity Gateway is
-the only approval authority for the work-order write.
+The primary experience is the live command center. Alerts launch agents automatically; the
+presenter never types the initiating prompt. The UI renders model, Skill, MCP, policy, and tool
+activity only after the runtime emits it. Unity Gateway—not application code—is the approval
+authority for the maintenance write.
 
-## System context
+## End-to-end topology
 
 ```mermaid
 flowchart LR
-    UI[React command center] <-->|HTTPS + SSE| APP[Databricks App\nFastAPI + agent runtime]
-    APP <-->|SQL + LISTEN/NOTIFY| LB[(Lakebase\noperational state)]
-    APP -->|scenario commands| LB
-    PRODUCER[Classic job\ntelemetry producer] -->|continuous events| KAFKA[Kafka topic]
-    PRODUCER <-->|claim commands + heartbeat| LB
-    KAFKA --> RTM[Dedicated DBR 19 cluster\nSpark Real-Time Mode]
+    PRODUCER[Classic Lakeflow Job<br/>synthetic pump producer] --> KAFKA[Kafka topic]
+    PRODUCER <-->|commands + heartbeat| LB[(Lakebase<br/>operational state)]
+
+    KAFKA --> RTM[Standalone Spark<br/>Real-Time Mode]
     RTM -->|native PostgreSQL sink| LB
-    APP -->|skill discovery| SKILL[Unity Catalog Skill]
-    APP -->|MCP calls with OBO token| GW[Unity Gateway]
-    GW -->|governed tools| APP
-    APP --> FAST[Databricks GPT-5.1]
-    APP --> DEEP[Claude Sonnet 4.5]
-    GW -->|ASK| APPROVAL[Native approval UI]
+
+    KAFKA --> LDP[SQL Lakeflow<br/>Declarative Pipeline]
+    LDP --> BRONZE[UC telemetry_bronze]
+    BRONZE --> SILVER[UC telemetry_silver]
+    BRONZE --> QUARANTINE[UC telemetry_quarantine]
+    SILVER --> VIEW[UC pump_telemetry_history]
+    VIEW --> GENIE[Genie Agent<br/>Fleet telemetry analyst]
+
+    UI[React command center] <-->|HTTPS + SSE| APP[Databricks App<br/>FastAPI + agent runtime]
+    APP <-->|SQL + LISTEN/NOTIFY| LB
+    UI -->|OBO question| APP
+    APP -->|Conversation API + OBO| GENIE
+
+    APP -->|single model| SONNET[Claude Sonnet 4.5]
+    APP -->|load governed procedure| SKILL[Unity Catalog Skill]
+    APP -->|OBO tools/list + tools/call| GW[Unity Gateway MCP]
+    GW -->|source identity| MCP[App-hosted MCP tools]
+    GW -->|native ASK| APPROVAL[Human approval]
 ```
 
-## Deployed components
+## Data journey
 
-| Component | Deployment | Responsibility |
+### 1. Synthetic source and control plane
+
+The producer continuously publishes two observations per second for each of eight comparable
+pumps. Stable baselines, two normal transients, and the presenter-controlled P-204 degradation
+are generated as a continuous signal; triggering P-204 does not replace or interrupt its feed.
+
+The App never needs network access to Kafka. Presenter controls create durable Lakebase
+`scenario_commands`. The producer claims pending or expired commands with versioned leases,
+bounded retries, and owner-checked completion. Kafka acknowledgement precedes producer heartbeat
+advancement, and deterministic event identifiers make downstream retries idempotent.
+
+### 2. Operational path: Real-Time Mode to Lakebase
+
+The standalone Spark Structured Streaming job runs in Real-Time Mode on dedicated classic
+compute. It decodes Kafka envelopes and uses the native PostgreSQL sink to write Lakebase
+`telemetry_events`. A trigger maintains `pump_live_state` and publishes `LISTEN/NOTIFY` hints.
+
+The App reads bounded current-state and per-pump top-N queries, coalesces database notification
+bursts, and pushes canonical snapshots over SSE. An independent one-second evaluator queries
+Lakebase and creates an incident exactly once when an alert rule enters its trigger state.
+
+Standalone RTM remains separate because the native Lakebase streaming sink is not supported
+inside the public Lakeflow Declarative Pipelines Real-Time Mode surface.
+
+### 3. Governed history: SQL Lakeflow Declarative Pipeline
+
+The same Kafka topic is consumed independently by a continuous, classic-compute SQL Lakeflow
+Declarative Pipeline:
+
+| Dataset | Contract | Access |
 | --- | --- | --- |
-| Command center | Databricks App `asset-reliability-center` | React UI, FastAPI APIs, SSE, alert evaluator, code-defined agent, App-hosted MCP tools |
-| Operational database | Lakebase project `asset-reliability-command-center` | Telemetry log, current state, commands, incidents, runs, activity, identities, work orders |
-| Synthetic producer | Continuous job `952037348530266`, isolated classic single-node compute | Eight-pump signal generation, durable command claiming, Kafka publication, heartbeat |
-| RTM ingestion | Continuous job `17156207332698`, dedicated DBR 19 classic compute | Kafka decoding and native Lakebase streaming sink |
-| Checkpoint storage | `classic_stable_realtime_demos_catalog.asset_reliability_command_center.runtime` | RTM checkpoint and runtime artifacts |
-| Governance | UC Skill, HTTP MCP connection, Unity Gateway MCP service, custom policy function | Runtime procedure discovery, tool exposure, `ASK` on `submit_work_order` |
-| Models | `databricks-gpt-5-1`, `databricks-claude-sonnet-4-5` | Fast action selection and high-risk reasoning |
+| `telemetry_bronze` | Raw UTF-8 payload plus Kafka topic, partition, offset, and timestamps | Pipeline operators only |
+| `telemetry_silver` | Typed telemetry with physical-sanity expectations and internal provenance | Pipeline operators only |
+| `telemetry_quarantine` | Invalid payload, broker provenance, and explicit rejection reasons | Pipeline operators only |
+| `pump_telemetry_history` | Continuous validated measurements without scenario/control fields | Existing App access group |
 
-The Unity Catalog schema is
-`classic_stable_realtime_demos_catalog.asset_reliability_command_center`. Lakebase uses the
-PostgreSQL schema `asset_reliability`.
+Silver retains internal scenario and Kafka coordinates for engineering support. The curated view
+deliberately omits them. Genie therefore sees one chronological fleet history that persists
+across command-center restarts and does not understand incidents, agent executions, work orders,
+or demo scenarios.
 
-## Telemetry and control flow
+Unity Catalog supplies ownership, three-part naming, comments, lineage, and permissions. The
+existing `asset-reliability-command-center-operator` group receives `USE CATALOG`, `USE SCHEMA`,
+and `SELECT` only on the curated view; no additional read-only group is created.
 
-1. The producer publishes two samples per second for each of eight comparable pumps. Event
-   IDs are deterministic by scenario, sequence, and pump. On restart, the producer resumes
-   above both persisted sequence state and the wall-clock sequence floor.
-2. Presenter controls write idempotent commands to `scenario_commands`; the App never needs
-   network access to Kafka.
-3. The producer claims commands with `FOR UPDATE SKIP LOCKED`. `restart_scenario` starts a
-   fresh feed with P-202/P-207 transients; `start_p204_excursion` transitions P-204 smoothly
-   from its stable signal into issue onset.
-4. Standalone Spark Structured Streaming Real-Time Mode reads Kafka and writes the validated
-   envelope directly into `telemetry_events` through the native PostgreSQL sink.
-5. A Lakebase trigger upserts `pump_live_state` and emits `LISTEN/NOTIFY`. This keeps both the
-   current-state read path and UI notification path independent from the event-log size.
-6. The App coalesces each notification burst before rebuilding one dashboard snapshot and
-   sends revisions over SSE. Alert evaluation remains an independent one-second loop.
+## Databricks App and two distinct AI experiences
 
-Standalone RTM is used because the Lakebase streaming sink is not supported inside public
-Lakeflow Declarative Pipelines Real-Time Mode. RTM ingestion owns no alert or agent logic.
+### Autonomous reliability agent
 
-## Autonomous agent and governance flow
+The alert evaluator creates a machine-authored prompt containing the pump, observed threshold
+condition, timestamp, incident identifier, and maintenance objective. A background task per
+incident permits concurrent evaluations.
 
-1. The one-second evaluator detects a threshold entry and transactionally creates one
-   incident/run per scenario, pump, and rule.
-2. A machine-authored prompt supplies the asset, observed condition, threshold, timestamp,
-   incident identifier, and maintenance objective. The presenter does not type it.
-3. The runtime loads the governed UC Skill, calls `tools/list` on the single configured Unity
-   Gateway MCP endpoint, and persists the returned tool inventory with the MCP activity. It
-   does not enumerate MCP servers or expose the endpoint URL in the UI.
-4. GPT-5.1 selects initial evidence actions. A high-risk result routes subsequent reasoning
-   to Sonnet 4.5. Tool-selection rationales receive one model correction attempt; if its
-   presentation remains unusable, the runtime emits a deterministic prospective rationale
-   naming the selected tools and continues. The runtime imposes no tool-call cap or fixed
-   visualization stages.
-5. Business calls traverse Unity Gateway with the captured user identity. Current tools are
-   `get_asset_telemetry`, `assess_failure_risk`, `prepare_work_order`, and
-   `submit_work_order`.
-6. The custom policy returns native `ASK` for `submit_work_order`. The runtime stores the
-   exact serialized request, stops before execution, and exposes the native approval URL. The
-   approval card is the only waiting-state output; no terminal conclusion is generated yet.
-7. After approval, the runtime replays those exact bytes. Gateway authorization creates the
-   work order, then the model generates one four-part conclusion and the run completes. A
-   repeated `ASK` leaves the existing card unchanged. A denial or error is recorded rather
-   than represented as successful execution.
+The code-defined loop uses one model—`databricks-claude-sonnet-4-5`—for action selection,
+reasoning, and final response. It loads the governed UC Skill, calls `tools/list` on the single
+configured MCP service, and lets the model choose tools without a UI-imposed stage or call cap.
+The current discovered tools are:
 
-Independent incidents run in separate asyncio tasks, so normal transients can be evaluated
-concurrently. OBO tokens remain in process memory; only identity subjects are persisted.
+- `get_asset_telemetry`
+- `assess_failure_risk`
+- `prepare_work_order`
+- `submit_work_order`
 
-## Lakebase data model
+Every model or tool activity is persisted and rendered separately. The model reports tokens and
+estimated cost for one attributable model, supporting future cross-model benchmark work.
 
-| Table | Role |
+### Fleet telemetry analyst
+
+The Fleet telemetry analyst is a separate Genie Agent embedded in a right-hand App drawer. It is
+limited to `pump_telemetry_history`. Questions and follow-ups go through a focused FastAPI adapter
+to the Genie Conversation API using the current user's forwarded OBO token.
+
+The drawer shows execution identity, intermediate status, natural-language answers, bounded
+tabular results, generated SQL, source/freshness, and an AI-generated-answer disclaimer. It also
+handles empty, ambiguous, partial, and error states. Conversation identifiers are held in a
+bounded per-user in-memory registry and are not tied to command-center scenarios or resets.
+
+## Governance and identity boundaries
+
+The App-to-Gateway hop uses the current operator's OBO token. Gateway evaluates that user's tool
+access and policy. The Gateway-to-source hop is different: the configured HTTP connection uses
+the App service principal, and `/mcp` rejects human callers that try to bypass Gateway.
+
+The custom `submit_work_order` policy returns native `ASK`. The agent persists the exact pending
+request and stops before source execution. Approval replay is single-flight: an atomic lease
+allows only one caller to resume the request. A successful replay creates an immutable governance
+receipt containing the elicitation identifier, request hash, approving subject, decision, and
+timestamps. Denial, repeated `ASK`, and transport errors cannot be represented as success.
+
+The deployment helper reconciles the Skill, MCP source connection, selected tools, service
+policy, and App-source permission. Its non-destructive policy probe must receive `ASK` with
+`execution=not executed` before governance deployment is considered valid.
+
+OBO access tokens live only in process memory and are never logged or persisted. Identity subjects
+are retained for audit. Restart and operator handover cancel and await active agent tasks before a
+new scenario is created, preventing work from crossing scenario boundaries.
+
+## Lakebase operational model
+
+| Table | Purpose |
 | --- | --- |
-| `pumps` | Static fleet and maintenance context |
-| `scenario_runs` | One active scenario plus archived run metadata |
-| `scenario_commands` | Durable, idempotent presenter commands |
-| `telemetry_events` | Append/upsert event log keyed by deterministic `event_id` |
-| `pump_live_state` | Latest observation per scenario and pump |
-| `alert_rules` | Configured threshold and hysteresis values |
-| `incidents` | Alert lifecycle and business resolution |
-| `agent_runs` | Agent status, approval request, token/cost/tool totals |
-| `activity_events` | Ordered runtime-emitted timeline |
-| `conversation_messages` | Operator follow-up messages and non-model runtime fallbacks |
-| `work_orders` | Governed maintenance result |
-| `run_identities` | Persisted user subject audit metadata, never tokens |
-| `component_heartbeats` | Producer health and acknowledged message count |
-| `app_users` | Recently observed authenticated App users available for operator selection |
-| `shift_operator` | Singleton, versioned shared operator assignment |
-| `shift_operator_audit` | Immutable operator handover audit trail |
+| `pumps`, `alert_rules` | Fleet metadata and threshold/hysteresis rules |
+| `scenario_runs`, `scenario_commands` | Demo lifecycle and recoverable producer commands |
+| `telemetry_events`, `pump_live_state` | Operational event log and bounded latest state |
+| `incidents`, `agent_runs` | Alert and autonomous-execution lifecycle |
+| `activity_events`, `conversation_messages` | Ordered runtime activity and operator follow-ups |
+| `work_orders`, `governance_receipts` | Governed outcome and immutable approval evidence |
+| `run_identities`, `app_users`, `shift_operator`, `shift_operator_audit` | OBO subject and shared-operator audit |
+| `component_heartbeats` | Producer and evaluator freshness signals |
 
-Uniqueness constraints prevent duplicate active scenarios, commands, incidents, events, and
-work orders. Database notifications are hints; canonical state always comes from tables.
-Model text has one source of truth: its runtime activity, rendered through the activity Output
-card and retained with its timing, token, and cost metadata. Operator follow-ups remain in
-`conversation_messages`; deterministic fallbacks are explicit runtime activities. Startup
-migration removes legacy agent-message copies whose content already exists in a model activity.
+Run and incident rows act as sequence-allocation locks for concurrent timeline writers. Database
+uniqueness constraints remain the final idempotency guard for scenarios, commands, events,
+incidents, and work orders.
 
-## Bounded read and retention design
+## Health, recovery, and retention
 
-Dashboard latency is measured from immediately before acquiring a Lakebase connection until
-the complete snapshot query set returns. Sparkline reads use eight index-backed lateral
-probes over `(scenario_id, pump_id, event_time DESC)`, each limited to 20 samples. Query cost
-therefore remains bounded as `telemetry_events` grows.
+The top-right App status is derived from Lakebase reachability, latest ingested telemetry,
+producer heartbeat, RTM's durable effect, and evaluator heartbeat. A stale signal changes the
+state to degraded and identifies the affected component.
 
-Agent telemetry tools query the active scenario directly and never construct a dashboard
-snapshot. SSE waits for a real change, coalesces row-level notification bursts for 50 ms,
-and then queries once.
+Operational telemetry is retained for 24 hours. Batched, index-backed cleanup is best effort and
+cannot block ingestion. Unity Catalog history is independent and is not cleared by App restart.
 
-Raw telemetry retention is 24 hours. Every five minutes the App performs best-effort cleanup
-in batches of at most 1,000 events per scenario/pump. Deletes use the same composite index,
-`FOR UPDATE SKIP LOCKED`, a 250 ms lock timeout, and a two-second statement timeout. Cleanup
-enumerates only the small scenario/pump cross product; it never scans the event log to
-discover work. Cleanup failure is isolated from ingestion and interactive reads.
+The generated root `.build-info.json` records the clean Git commit included in a deployment; the
+App exposes it through `/api/build-info`. The file is ignored by Git but included in the App
+snapshot. Deployment is repository-first and manual through `scripts/deploy.py`.
 
-## Failure and recovery behavior
-
-- Kafka publication is acknowledged before the producer heartbeat advances. Broker failure
-  makes the continuous job fail visibly and restart.
-- Producer sequence recovery prevents event-ID collisions after job replacement.
-- RTM uses a persistent UC checkpoint and idempotent event keys.
-- Alert creation and command claiming are transactionally deduplicated.
-- A transient evaluator/database error is retried on the next one-second pass.
-- Pending approval persists in Lakebase, while replay still requires the in-memory OBO token;
-  restarting the App during approval requires reopening the scenario under a live user session.
-- SSE reconnects using revisions and always rebuilds state from Lakebase rather than treating
-  notifications as durable events.
-
-## Security and governance boundaries
-
-- The Databricks App service principal owns the Lakebase schema and receives only declared
-  App resources.
-- The browser's forwarded user token is captured server-side for Gateway calls and is never
-  written to Lakebase or logs.
-- Authenticated user tokens are cached only in process memory by user email. On handover, a
-  cached token for the selected operator is bound to the fresh scenario; otherwise autonomous
-  reviews wait until that operator's dashboard or SSE request supplies a token.
-- The root HTTP connection uses the App service principal only to reach the MCP endpoint;
-  Gateway policies govern business execution.
-- Model, Skill, MCP, and Gateway access are Databricks-native resource bindings.
-- Generated connection credentials and OAuth secrets are created through APIs and never
-  stored in this repository.
-- Only the centrally selected shift operator can reset or trigger scenarios and initiate
-  agent follow-ups. Any authenticated user can explicitly hand over control; the versioned
-  handover transaction archives active reviews and starts a fresh shared scenario.
-
-## Source layout
+## Repository map
 
 | Path | Contents |
 | --- | --- |
-| `frontend/` | React/Vite command center |
-| `backend/` | FastAPI service, Lakebase repository, agent runtime, Gateway/model clients, MCP tools |
-| `src/producer/` | Continuous synthetic telemetry publisher |
-| `src/streaming/` | Standalone Spark RTM Kafka-to-Lakebase query |
+| `frontend/` | React command center and Genie drawer |
+| `backend/` | FastAPI, Lakebase repository, autonomous runtime, Genie adapter, MCP tools |
+| `src/producer/` | Continuous synthetic telemetry producer notebook source |
+| `src/streaming/` | Standalone Spark RTM Kafka-to-Lakebase notebook source |
+| `src/pipelines/` | Documented SQL Lakeflow governed-history pipeline |
+| `genie/` | Reproducible serialized Genie Agent definition |
 | `skills/` | Governed UC Skill source |
-| `sql/` | Idempotent Lakebase schema and Gateway policy function |
-| `scripts/` | Local development and governance deployment helpers |
-| `tests/` | API, Gateway, repository, concurrency, and query-shape tests |
-| `databricks.yml` | Databricks Asset Bundle resources |
-| `app.yaml` | Production App command and environment |
-
-See `docs/DEPLOYMENT.md` for the manual deployment and validation process.
+| `sql/` | Lakebase schema, view grants, and Gateway policy function |
+| `scripts/` | Checked deployment and idempotent data/governance helpers |
+| `tests/` | API, runtime, governance, data-plane, concurrency, and deployment contracts |
+| `docs/` | Architecture, deployment, evidence, and technical-debt records |
