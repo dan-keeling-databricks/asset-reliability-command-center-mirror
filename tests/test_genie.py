@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from enum import Enum
 from types import SimpleNamespace
 
+from databricks.sdk.errors import DatabricksError
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -304,3 +306,37 @@ def test_answer_remains_available_when_tabular_result_fetch_is_partial() -> None
         assert body["warnings"] == [
             "Tabular results are temporarily unavailable for Peak vibration."
         ]
+
+
+def test_genie_failure_logs_error_metadata_and_scopes_without_token(caplog) -> None:
+    """Runtime diagnostics expose the platform response but never the OBO credential."""
+
+    class FailingClient(FakeGenieClient):
+        def start(self, **kwargs):
+            token = kwargs["token"]
+            raise DatabricksError(
+                f"scope rejected for Bearer {token}",
+                error_code="INSUFFICIENT_SCOPE",
+            )
+
+    token = (
+        "eyJhbGciOiJub25lIn0."
+        "eyJzY29wZSI6ImdlbmllIGlhbS5jdXJyZW50LXVzZXI6cmVhZCJ9."
+        "diagnostic-signature"
+    )
+    with caplog.at_level(logging.ERROR, logger="backend.genie_router"):
+        with genie_client(FailingClient()) as client:
+            response = client.post(
+                "/api/genie/messages",
+                headers=user_headers("alice@databricks.com", token),
+                json={"question": "Highest vibration?"},
+            )
+
+    assert response.status_code == 502
+    assert "operation=submit_message" in caplog.text
+    assert "exception_type=DatabricksError" in caplog.text
+    assert "error_code=INSUFFICIENT_SCOPE" in caplog.text
+    assert "genie" in caplog.text
+    assert "iam.current-user:read" in caplog.text
+    assert token not in caplog.text
+    assert "diagnostic-signature" not in caplog.text
