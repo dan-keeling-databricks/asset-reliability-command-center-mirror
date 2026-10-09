@@ -175,7 +175,8 @@ resources:
             warehouse_id: ${var.warehouse_id}
             parameters:
               catalog_name: ${var.catalog}
-              schema_name: ${var.schema}
+              schema_fqn: ${var.catalog}.${var.schema}
+              view_fqn: ${var.catalog}.${var.schema}.pump_telemetry_history
 
     setup_runtime_principal_access:
       name: Asset Reliability — grant workload identity access
@@ -188,8 +189,8 @@ resources:
             warehouse_id: ${var.warehouse_id}
             parameters:
               catalog_name: ${var.catalog}
-              schema_name: ${var.schema}
-              volume_name: ${var.volume}
+              schema_fqn: ${var.catalog}.${var.schema}
+              volume_fqn: ${var.catalog}.${var.schema}.${var.volume}
 
     telemetry_producer:
       name: Asset Reliability — continuous pump telemetry producer

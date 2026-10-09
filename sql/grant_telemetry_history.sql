@@ -11,13 +11,13 @@ ON CATALOG IDENTIFIER(:catalog_name)
 TO `asset-reliability-command-center-operator`;
 
 GRANT USE SCHEMA
-ON SCHEMA IDENTIFIER(:catalog_name || '.' || :schema_name)
+ON SCHEMA IDENTIFIER(:schema_fqn)
 TO `asset-reliability-command-center-operator`;
 
 GRANT SELECT
-ON VIEW IDENTIFIER(:catalog_name || '.' || :schema_name || '.pump_telemetry_history')
+ON VIEW IDENTIFIER(:view_fqn)
 TO `asset-reliability-command-center-operator`;
 
 -- Text-readable verification output for deployment logs and the curated evidence package.
 SHOW GRANTS
-ON VIEW IDENTIFIER(:catalog_name || '.' || :schema_name || '.pump_telemetry_history');
+ON VIEW IDENTIFIER(:view_fqn);

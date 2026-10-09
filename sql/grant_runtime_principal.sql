@@ -12,19 +12,19 @@ ON CATALOG IDENTIFIER(:catalog_name)
 TO `bd5178cb-8774-4d77-bc63-b4f491716d0b`;
 
 GRANT USE SCHEMA
-ON SCHEMA IDENTIFIER(:catalog_name || '.' || :schema_name)
+ON SCHEMA IDENTIFIER(:schema_fqn)
 TO `bd5178cb-8774-4d77-bc63-b4f491716d0b`;
 
 GRANT CREATE TABLE
-ON SCHEMA IDENTIFIER(:catalog_name || '.' || :schema_name)
+ON SCHEMA IDENTIFIER(:schema_fqn)
 TO `bd5178cb-8774-4d77-bc63-b4f491716d0b`;
 
 GRANT READ VOLUME
-ON VOLUME IDENTIFIER(:catalog_name || '.' || :schema_name || '.' || :volume_name)
+ON VOLUME IDENTIFIER(:volume_fqn)
 TO `bd5178cb-8774-4d77-bc63-b4f491716d0b`;
 
 GRANT WRITE VOLUME
-ON VOLUME IDENTIFIER(:catalog_name || '.' || :schema_name || '.' || :volume_name)
+ON VOLUME IDENTIFIER(:volume_fqn)
 TO `bd5178cb-8774-4d77-bc63-b4f491716d0b`;
 
 -- These statements produce text-readable deployment evidence of the effective grants.
@@ -32,7 +32,7 @@ SHOW GRANTS
 ON CATALOG IDENTIFIER(:catalog_name);
 
 SHOW GRANTS
-ON SCHEMA IDENTIFIER(:catalog_name || '.' || :schema_name);
+ON SCHEMA IDENTIFIER(:schema_fqn);
 
 SHOW GRANTS
-ON VOLUME IDENTIFIER(:catalog_name || '.' || :schema_name || '.' || :volume_name);
+ON VOLUME IDENTIFIER(:volume_fqn);
