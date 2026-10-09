@@ -20,6 +20,17 @@ def test_schema_persists_versioned_operator_and_handover_audit() -> None:
     assert "new_version BIGINT NOT NULL" in schema
 
 
+def test_schema_persists_command_leases_and_immutable_governance_receipts() -> None:
+    schema = (Path(__file__).resolve().parents[1] / "sql" / "lakebase_schema.sql").read_text()
+
+    assert "lease_expires_at TIMESTAMPTZ" in schema
+    assert "claim_version BIGINT NOT NULL DEFAULT 0" in schema
+    assert "attempt_count INTEGER NOT NULL DEFAULT 0" in schema
+    assert "CREATE TABLE IF NOT EXISTS asset_reliability.governance_receipts" in schema
+    assert "request_sha256 TEXT NOT NULL" in schema
+    assert "governance_receipts_are_immutable" in schema
+
+
 def wait_repository(*, revision: int = 0, coalesce_seconds: float = 0.01):
     repository = LakebaseCommandCenterRepository.__new__(LakebaseCommandCenterRepository)
     repository._revision = revision
@@ -152,6 +163,29 @@ def test_threshold_evaluation_is_scoped_to_identity_scenario() -> None:
 
     assert "SCENARIO.SCENARIO_ID = %S::UUID" in query
     assert "SCENARIO.STATUS = 'ACTIVE'" in query
+
+
+def test_sequence_allocation_locks_parent_rows() -> None:
+    source = (
+        Path(__file__).resolve().parents[1] / "backend" / "lakebase_repository.py"
+    ).read_text()
+
+    assert "SELECT run_id FROM {} WHERE incident_id = %s::uuid FOR UPDATE" in source
+    assert "SELECT incident_id FROM {} WHERE incident_id = %s::uuid FOR UPDATE" in source
+
+
+def test_producer_commands_use_versioned_recoverable_leases() -> None:
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "producer"
+        / "pump_telemetry_producer.py"
+    ).read_text()
+
+    assert "lease_expires_at < now()" in source
+    assert "attempt_count < %s" in source
+    assert "claimed_by = %s AND claim_version = %s" in source
+    assert "Lost command lease before completion" in source
 
 
 class FakeResult:

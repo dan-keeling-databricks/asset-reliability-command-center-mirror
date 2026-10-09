@@ -11,7 +11,7 @@ import asyncio
 import os
 import re
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -407,6 +407,14 @@ class LakebaseCommandCenterRepository:
                     ).format(self.table("app_users"))
                 )
             ).fetchall()
+            heartbeat_rows = await (
+                await connection.execute(
+                    sql.SQL(
+                        "SELECT component_name, observed_at, status FROM {} "
+                        "WHERE component_name IN ('telemetry-producer', 'alert-evaluator')"
+                    ).format(self.table("component_heartbeats"))
+                )
+            ).fetchall()
         query_latency_ms = max(1, round((time.perf_counter() - query_started) * 1000))
 
         pump_models: list[PumpState] = []
@@ -475,6 +483,34 @@ class LakebaseCommandCenterRepository:
                 )
         alerts = [self._alert_from_row(row) for row in incident_rows]
         invocations = [self._invocation_from_row(row) for row in incident_rows]
+        now = datetime.now(UTC)
+        heartbeat_by_name = {row["component_name"]: row for row in heartbeat_rows}
+        stale_components: list[str] = []
+        producer = heartbeat_by_name.get("telemetry-producer")
+        evaluator = heartbeat_by_name.get("alert-evaluator")
+        if (
+            not producer
+            or producer["status"] != "healthy"
+            or (now - producer["observed_at"]).total_seconds() > 15
+        ):
+            stale_components.append("producer")
+        # RTM health is derived from its durable effect rather than a process-local status:
+        # fresh ingested telemetry proves that Kafka records are reaching Lakebase.
+        if not latest_ingested or (now - latest_ingested).total_seconds() > 5:
+            stale_components.extend(["telemetry", "rtm"])
+        if (
+            not evaluator
+            or evaluator["status"] != "healthy"
+            or (now - evaluator["observed_at"]).total_seconds() > 5
+        ):
+            stale_components.append("evaluator")
+        platform_connection = "degraded" if stale_components else "connected"
+        source_label = (
+            "Lakebase · live operational state"
+            if not stale_components
+            else f"Lakebase · degraded: {', '.join(stale_components)}"
+        )
+
         snapshot = DashboardSnapshot(
             scenario=ScenarioState(
                 id=scenario["scenario_id"],
@@ -482,7 +518,8 @@ class LakebaseCommandCenterRepository:
                 started_at=scenario["started_at"],
             ),
             platform=PlatformStatus(
-                source_label="Lakebase · live operational state",
+                connection=platform_connection,
+                source_label=source_label,
                 latency_ms=query_latency_ms,
                 kafka_to_lakebase_latency_ms=kafka_to_lakebase_latency_ms,
                 lakebase_to_ui_latency_ms=query_latency_ms,
@@ -740,9 +777,36 @@ class LakebaseCommandCenterRepository:
                     return
 
     async def restart_scenario(self, requested_by: str | None) -> str:
+        """Atomically close active reviews before publishing a replacement scenario."""
+
         scenario_id, command_id = uuid4(), uuid4()
         async with self._pool.connection() as connection:
             async with connection.transaction():
+                await connection.execute(
+                    sql.SQL(
+                        """UPDATE {} run SET status = 'failed', completed_at = NOW(),
+                        pending_approval_url = NULL, pending_tool_request = NULL,
+                        approval_replay_state = NULL, approval_claimed_at = NULL,
+                        approval_claimed_by = NULL,
+                        error = 'Archived by scenario restart'
+                        FROM {} incident WHERE run.incident_id = incident.incident_id
+                          AND incident.scenario_id IN
+                            (SELECT scenario_id FROM {} WHERE status = 'active')
+                          AND run.status IN ('queued', 'running', 'waiting_approval')"""
+                    ).format(
+                        self.table("agent_runs"),
+                        self.table("incidents"),
+                        self.table("scenario_runs"),
+                    )
+                )
+                await connection.execute(
+                    sql.SQL(
+                        """UPDATE {} SET status = 'failed', resolved_at = NOW(),
+                        resolution_summary = 'Archived by scenario restart'
+                        WHERE scenario_id IN (SELECT scenario_id FROM {} WHERE status = 'active')
+                          AND status IN ('reviewing', 'waiting_approval')"""
+                    ).format(self.table("incidents"), self.table("scenario_runs"))
+                )
                 await connection.execute(
                     sql.SQL(
                         "UPDATE {} SET status = 'archived', ended_at = NOW() "
@@ -966,18 +1030,15 @@ class LakebaseCommandCenterRepository:
         tokens: tuple[int, int, float] | None = None,
         tool_call: bool = False,
     ) -> None:
-        """Persist one runtime-emitted event and atomically update run totals.
-
-        The current ``MAX(sequence) + 1`` allocation assumes one writer per run. A future
-        multi-writer implementation must lock or use a dedicated counter before relaxing that
-        invariant; this limitation is tracked in the technical-debt register.
-        """
+        """Persist one event after locking its run as the sequence-allocation mutex."""
 
         async with self._pool.connection() as connection:
             async with connection.transaction():
                 run = await (
                     await connection.execute(
-                        sql.SQL("SELECT run_id FROM {} WHERE incident_id = %s::uuid").format(
+                        sql.SQL(
+                            "SELECT run_id FROM {} WHERE incident_id = %s::uuid FOR UPDATE"
+                        ).format(
                             self.table("agent_runs")
                         ),
                         (incident_id,),
@@ -1024,9 +1085,94 @@ class LakebaseCommandCenterRepository:
                 await connection.execute(
                     sql.SQL(
                         "UPDATE {} SET status = 'waiting_approval', pending_approval_url = %s, "
-                        "pending_tool_request = %s WHERE incident_id = %s::uuid"
+                        "pending_tool_request = %s, approval_replay_state = 'pending', "
+                        "approval_claimed_at = NULL, approval_claimed_by = NULL "
+                        "WHERE incident_id = %s::uuid"
                     ).format(self.table("agent_runs")),
                     (pending.approval_url, Jsonb(pending.model_dump(mode="json")), incident_id),
+                )
+
+    async def claim_pending_approval(
+        self, incident_id: str, approving_subject: str
+    ) -> PendingApproval | None:
+        """Claim one paused request, reclaiming only an abandoned two-minute lease."""
+
+        async with self._pool.connection() as connection:
+            async with connection.transaction():
+                row = await (
+                    await connection.execute(
+                        sql.SQL(
+                            """UPDATE {} SET approval_replay_state = 'claimed',
+                            approval_claimed_at = NOW(), approval_claimed_by = %s
+                            WHERE incident_id = %s::uuid AND status = 'waiting_approval'
+                              AND pending_tool_request IS NOT NULL
+                              AND (COALESCE(approval_replay_state, 'pending') = 'pending'
+                                OR (approval_replay_state = 'claimed' AND
+                                    approval_claimed_at < NOW() - INTERVAL '2 minutes'))
+                            RETURNING pending_tool_request"""
+                        ).format(self.table("agent_runs")),
+                        (approving_subject, incident_id),
+                    )
+                ).fetchone()
+        if not row:
+            return None
+        return PendingApproval.model_validate(row["pending_tool_request"])
+
+    async def release_pending_approval(self, incident_id: str) -> None:
+        """Release a replay lease when Gateway still requires approval or transport fails."""
+
+        async with self._pool.connection() as connection:
+            await connection.execute(
+                sql.SQL(
+                    "UPDATE {} SET approval_replay_state = 'pending', "
+                    "approval_claimed_at = NULL, approval_claimed_by = NULL "
+                    "WHERE incident_id = %s::uuid AND status = 'waiting_approval' "
+                    "AND approval_replay_state = 'claimed'"
+                ).format(self.table("agent_runs")),
+                (incident_id,),
+            )
+            await connection.commit()
+
+    async def record_governance_receipt(
+        self, incident_id: str, work_order_id: str, receipt: dict[str, Any]
+    ) -> None:
+        """Append an immutable approval receipt and attach its projection to the work order."""
+
+        async with self._pool.connection() as connection:
+            async with connection.transaction():
+                run = await (
+                    await connection.execute(
+                        sql.SQL(
+                            "SELECT run_id FROM {} WHERE incident_id = %s::uuid FOR UPDATE"
+                        ).format(self.table("agent_runs")),
+                        (incident_id,),
+                    )
+                ).fetchone()
+                await connection.execute(
+                    sql.SQL(
+                        """INSERT INTO {} (receipt_id, run_id, incident_id, elicitation_id,
+                        request_sha256, approving_subject, decision, requested_at, decided_at,
+                        completed_at) VALUES (%s, %s, %s::uuid, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (elicitation_id) DO NOTHING"""
+                    ).format(self.table("governance_receipts")),
+                    (
+                        uuid4(),
+                        run["run_id"],
+                        incident_id,
+                        receipt["elicitation_id"],
+                        receipt["request_sha256"],
+                        receipt["approving_subject"],
+                        receipt["decision"],
+                        receipt["requested_at"],
+                        receipt["decided_at"],
+                        receipt["completed_at"],
+                    ),
+                )
+                await connection.execute(
+                    sql.SQL(
+                        "UPDATE {} SET governance_receipt = %s WHERE work_order_id = %s"
+                    ).format(self.table("work_orders")),
+                    (Jsonb(receipt), work_order_id),
                 )
 
     async def complete_incident(self, incident_id: str, work_order_id: str) -> None:
@@ -1043,7 +1189,8 @@ class LakebaseCommandCenterRepository:
                 await connection.execute(
                     sql.SQL(
                         "UPDATE {} SET status = 'completed', completed_at = NOW(), "
-                        "pending_approval_url = NULL, pending_tool_request = NULL "
+                        "pending_approval_url = NULL, pending_tool_request = NULL, "
+                        "approval_replay_state = 'completed' "
                         "WHERE incident_id = %s::uuid"
                     ).format(self.table("agent_runs")),
                     (incident_id,),
@@ -1086,19 +1233,42 @@ class LakebaseCommandCenterRepository:
                 )
 
     async def append_conversation(self, incident_id: str, role: str, content: str) -> None:
-        """Append an operator/system message to an incident's ordered conversation.
+        """Append a message after locking its incident as the sequence-allocation mutex."""
 
-        As with activity events, ordering currently assumes a single writer per incident.
-        """
+        async with self._pool.connection() as connection:
+            async with connection.transaction():
+                await connection.execute(
+                    sql.SQL(
+                        "SELECT incident_id FROM {} WHERE incident_id = %s::uuid FOR UPDATE"
+                    ).format(self.table("incidents")),
+                    (incident_id,),
+                )
+                await connection.execute(
+                    sql.SQL(
+                        "INSERT INTO {} (message_id, incident_id, sequence, role, content) "
+                        "SELECT %s, %s::uuid, COALESCE(MAX(sequence), 0) + 1, %s, %s "
+                        "FROM {} WHERE incident_id = %s::uuid"
+                    ).format(
+                        self.table("conversation_messages"),
+                        self.table("conversation_messages"),
+                    ),
+                    (uuid4(), incident_id, role, content, incident_id),
+                )
+
+    async def record_component_heartbeat(
+        self, component_name: str, details: dict[str, Any] | None = None
+    ) -> None:
+        """Publish a low-volume liveness record consumed by platform health derivation."""
 
         async with self._pool.connection() as connection:
             await connection.execute(
                 sql.SQL(
-                    "INSERT INTO {} (message_id, incident_id, sequence, role, content) "
-                    "SELECT %s, %s::uuid, COALESCE(MAX(sequence), 0) + 1, %s, %s "
-                    "FROM {} WHERE incident_id = %s::uuid"
-                ).format(self.table("conversation_messages"), self.table("conversation_messages")),
-                (uuid4(), incident_id, role, content, incident_id),
+                    """INSERT INTO {} (component_name, observed_at, status, details)
+                    VALUES (%s, NOW(), 'healthy', %s) ON CONFLICT (component_name) DO UPDATE
+                    SET observed_at = EXCLUDED.observed_at, status = EXCLUDED.status,
+                        details = EXCLUDED.details"""
+                ).format(self.table("component_heartbeats")),
+                (component_name, Jsonb(details or {})),
             )
             await connection.commit()
 

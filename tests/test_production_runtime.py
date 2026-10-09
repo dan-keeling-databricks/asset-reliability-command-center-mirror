@@ -199,11 +199,67 @@ async def test_repeated_gateway_ask_leaves_waiting_state_unchanged() -> None:
         message="Approval required",
         tool_name="submit_work_order",
     )
+    runtime.repository.claim_pending_approval = AsyncMock(return_value=pending)
+    runtime.repository.release_pending_approval = AsyncMock()
 
-    assert await runtime._retry_pending("incident-1", pending) is False
+    assert (
+        await runtime._retry_pending(
+            "incident-1", pending, "operator@databricks.com"
+        )
+        is False
+    )
+    runtime.repository.claim_pending_approval.assert_awaited_once_with(
+        "incident-1", "operator@databricks.com"
+    )
+    runtime.repository.release_pending_approval.assert_awaited_once_with("incident-1")
     runtime.repository.append_activity.assert_not_awaited()
     runtime.repository.append_conversation.assert_not_awaited()
     runtime.repository.complete_incident.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_successful_replay_records_exact_request_receipt_before_completion() -> None:
+    runtime = ProductionCommandCenterRuntime.__new__(ProductionCommandCenterRuntime)
+    incident = SimpleNamespace(status="waiting", scenario_id="scenario-1")
+    pending = PendingApproval(
+        serialized_request='{"jsonrpc":"2.0","method":"tools/call"}',
+        elicitation_id="approval-7",
+        approval_url="https://example.test/approval",
+        message="Approval required",
+        tool_name="submit_work_order",
+    )
+    runtime.repository = SimpleNamespace(
+        incident=AsyncMock(return_value=incident),
+        claim_pending_approval=AsyncMock(return_value=pending),
+        release_pending_approval=AsyncMock(),
+        record_governance_receipt=AsyncMock(),
+    )
+    runtime.identities = OboIdentityRegistry()
+    runtime.identities.capture("scenario-1", "live-token")
+    runtime.gateway = SimpleNamespace(
+        replay=AsyncMock(
+            return_value={
+                "result": {"structuredContent": {"work_order_id": "WO-10482"}}
+            }
+        )
+    )
+    runtime._complete_governed_action = AsyncMock()
+    runtime._generate_post_approval_response = AsyncMock()
+
+    assert await runtime._retry_pending(
+        "incident-1", pending, "operator@databricks.com"
+    )
+
+    receipt_call = runtime.repository.record_governance_receipt.await_args
+    assert receipt_call.args[:2] == ("incident-1", "WO-10482")
+    receipt = receipt_call.args[2]
+    assert receipt["elicitation_id"] == "approval-7"
+    assert receipt["approving_subject"] == "operator@databricks.com"
+    assert receipt["decision"] == "ALLOW"
+    assert receipt["request_sha256"] == (
+        "6df4e2f26c0e1b2cff8658620bd34f6006067bf9604c1a7b9d21032dbdab5f8e"
+    )
+    runtime.repository.release_pending_approval.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -426,6 +482,35 @@ def runtime_for_handover(repository) -> ProductionCommandCenterRuntime:
     runtime._identity_scenario_id = "old-scenario"
     runtime._last_subject = None
     return runtime
+
+
+@pytest.mark.asyncio
+async def test_restart_cancels_old_agent_tasks_before_repository_reset() -> None:
+    events: list[str] = []
+
+    async def reset(_subject):
+        events.append("repository-reset")
+        return "fresh-scenario"
+
+    async def old_agent():
+        try:
+            await asyncio.sleep(10)
+        finally:
+            events.append("agent-stopped")
+
+    repository = SimpleNamespace(restart_scenario=reset)
+    runtime = runtime_for_handover(repository)
+    task = asyncio.create_task(old_agent())
+    runtime._run_tasks.add(task)
+    runtime.identities.capture("old-scenario", "old-token")
+    await asyncio.sleep(0)
+
+    scenario_id = await runtime.restart()
+
+    assert scenario_id == "fresh-scenario"
+    assert events == ["agent-stopped", "repository-reset"]
+    assert runtime.identities.get("old-scenario") is None
+    assert runtime._identity_scenario_id is None
 
 
 @pytest.mark.asyncio

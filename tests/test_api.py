@@ -301,3 +301,39 @@ def test_operator_handover_requires_explicit_confirmation() -> None:
             },
         )
         assert response.status_code == 400
+
+
+def test_mcp_source_rejects_human_identity(monkeypatch) -> None:
+    monkeypatch.setenv("MCP_SOURCE_PRINCIPAL", "app-service-principal")
+    with local_client() as client:
+        response = client.post(
+            "/mcp",
+            headers={"X-Forwarded-Email": "operator@databricks.com"},
+            json={"jsonrpc": "2.0", "id": "1", "method": "tools/list"},
+        )
+
+    assert response.status_code == 403
+
+
+def test_mcp_source_accepts_configured_app_service_principal(monkeypatch) -> None:
+    monkeypatch.setenv("MCP_SOURCE_PRINCIPAL", "app-service-principal")
+    with local_client() as client:
+        response = client.post(
+            "/mcp",
+            headers={"X-Forwarded-Service-Principal": "app-service-principal"},
+            json={"jsonrpc": "2.0", "id": "1", "method": "tools/list"},
+        )
+
+    assert response.status_code == 200
+    assert {tool["name"] for tool in response.json()["result"]["tools"]} == {
+        "get_asset_telemetry",
+        "assess_failure_risk",
+        "prepare_work_order",
+        "submit_work_order",
+    }
+
+
+def test_build_info_is_text_readable(monkeypatch) -> None:
+    monkeypatch.setenv("APP_BUILD_COMMIT", "abc123")
+    with local_client() as client:
+        assert client.get("/api/build-info").json() == {"git_commit": "abc123"}

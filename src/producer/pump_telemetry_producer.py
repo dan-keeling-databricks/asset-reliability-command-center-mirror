@@ -117,6 +117,8 @@ PUMPS = (
 
 NAMESPACE = uuid.UUID("39deea2a-8ef5-4fb9-94b6-5ce34c505855")
 PRODUCER_ID = f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
+COMMAND_LEASE_SECONDS = 30
+COMMAND_MAX_ATTEMPTS = 3
 workspace = WorkspaceClient()
 
 # COMMAND ----------
@@ -170,27 +172,49 @@ def active_scenario(conn: psycopg.Connection[Any]) -> dict[str, Any] | None:
 
 
 def claim_commands(conn: psycopg.Connection[Any]) -> list[dict[str, Any]]:
-    """Atomically claim pending commands so only one producer can apply them."""
+    """Claim new or abandoned commands with a versioned, bounded lease.
+
+    A producer that dies after claiming cannot strand a command indefinitely. Expired leases
+    are reclaimed until the bounded attempt limit is reached; completion is fenced by owner
+    and claim version so a delayed former owner cannot finish a newer producer's claim.
+    """
 
     with conn.cursor() as cursor:
+        cursor.execute(
+            f"""
+            UPDATE {LAKEBASE_SCHEMA}.scenario_commands
+            SET status = 'failed', completed_at = now(),
+                error = 'Command lease expired after maximum retry attempts'
+            WHERE status = 'claimed' AND lease_expires_at < now()
+              AND attempt_count >= %s
+            """,
+            (COMMAND_MAX_ATTEMPTS,),
+        )
         cursor.execute(
             f"""
             WITH claimable AS (
                 SELECT command_id
                 FROM {LAKEBASE_SCHEMA}.scenario_commands
-                WHERE status = 'pending'
+                WHERE (status = 'pending'
+                       OR (status = 'claimed' AND lease_expires_at < now()))
+                  AND attempt_count < %s
                 ORDER BY requested_at
                 FOR UPDATE SKIP LOCKED
                 LIMIT 10
             )
             UPDATE {LAKEBASE_SCHEMA}.scenario_commands AS command
-            SET status = 'claimed', claimed_at = now(), claimed_by = %s
+            SET status = 'claimed', claimed_at = now(), claimed_by = %s,
+                lease_expires_at = now() + (%s * interval '1 second'),
+                attempt_count = command.attempt_count + 1,
+                claim_version = command.claim_version + 1,
+                error = NULL
             FROM claimable
             WHERE command.command_id = claimable.command_id
             RETURNING command.command_id::text, command.scenario_id::text,
-                      command.command_type, command.payload
+                      command.command_type, command.payload, command.claim_version,
+                      command.attempt_count
             """,
-            (PRODUCER_ID,),
+            (COMMAND_MAX_ATTEMPTS, PRODUCER_ID, COMMAND_LEASE_SECONDS),
         )
         rows = cursor.fetchall()
     conn.commit()
@@ -200,23 +224,40 @@ def claim_commands(conn: psycopg.Connection[Any]) -> list[dict[str, Any]]:
             "scenario_id": row[1],
             "command_type": row[2],
             "payload": row[3] or {},
+            "claim_version": row[4],
+            "attempt_count": row[5],
         }
         for row in rows
     ]
 
 
 def complete_command(
-    conn: psycopg.Connection[Any], command_id: str, *, error: str | None = None
+    conn: psycopg.Connection[Any], command_id: str, claim_version: int, *, error: str | None = None
 ) -> None:
+    """Finish only the claim still owned by this producer and version."""
+
     with conn.cursor() as cursor:
         cursor.execute(
             f"""
             UPDATE {LAKEBASE_SCHEMA}.scenario_commands
-            SET status = %s, completed_at = now(), error = %s
-            WHERE command_id = %s::uuid
+            SET status = %s, completed_at = now(), error = %s,
+                lease_expires_at = NULL
+            WHERE command_id = %s::uuid AND status = 'claimed'
+              AND claimed_by = %s AND claim_version = %s
             """,
-            ("failed" if error else "completed", error, command_id),
+            (
+                "failed" if error else "completed",
+                error,
+                command_id,
+                PRODUCER_ID,
+                claim_version,
+            ),
         )
+        if cursor.rowcount != 1:
+            conn.rollback()
+            raise RuntimeError(
+                f"Lost command lease before completion: {command_id} v{claim_version}"
+            )
     conn.commit()
 
 
@@ -468,11 +509,18 @@ try:
             for command in claim_commands(database):
                 try:
                     simulation = apply_command(database, command, simulation)
-                    complete_command(database, command["command_id"])
+                    complete_command(
+                        database, command["command_id"], command["claim_version"]
+                    )
                     print(f"Applied {command['command_type']} for {command['scenario_id']}")
                 except Exception as exc:  # noqa: BLE001
                     database.rollback()
-                    complete_command(database, command["command_id"], error=str(exc))
+                    complete_command(
+                        database,
+                        command["command_id"],
+                        command["claim_version"],
+                        error=str(exc),
+                    )
                     print(f"Command {command['command_id']} failed: {exc!r}")
 
             if tick_started - last_scenario_check >= 5.0:

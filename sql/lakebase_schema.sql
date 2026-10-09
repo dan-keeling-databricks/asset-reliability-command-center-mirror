@@ -86,14 +86,29 @@ CREATE TABLE IF NOT EXISTS asset_reliability.scenario_commands (
     requested_by TEXT,
     claimed_at TIMESTAMPTZ,
     claimed_by TEXT,
+    lease_expires_at TIMESTAMPTZ,
+    claim_version BIGINT NOT NULL DEFAULT 0,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
     completed_at TIMESTAMPTZ,
     error TEXT,
     UNIQUE (scenario_id, command_type)
 );
 
+-- Older installations predate command leases. These additive migrations keep an active
+-- producer compatible while enabling another producer to reclaim work abandoned by a failed
+-- process. Completion is fenced by both owner and claim_version in the producer code.
+ALTER TABLE asset_reliability.scenario_commands
+    ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS claim_version BIGINT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0;
+
 CREATE INDEX IF NOT EXISTS scenario_commands_pending_idx
     ON asset_reliability.scenario_commands (requested_at)
     WHERE status = 'pending';
+
+CREATE INDEX IF NOT EXISTS scenario_commands_reclaim_idx
+    ON asset_reliability.scenario_commands (lease_expires_at)
+    WHERE status = 'claimed';
 
 -- Append-oriented telemetry plus the bounded latest-state read model.
 CREATE TABLE IF NOT EXISTS asset_reliability.telemetry_events (
@@ -193,12 +208,55 @@ CREATE TABLE IF NOT EXISTS asset_reliability.agent_runs (
     completed_at TIMESTAMPTZ,
     pending_approval_url TEXT,
     pending_tool_request JSONB,
+    approval_replay_state TEXT CHECK (
+        approval_replay_state IN ('pending', 'claimed', 'completed')
+    ),
+    approval_claimed_at TIMESTAMPTZ,
+    approval_claimed_by TEXT,
     total_input_tokens BIGINT NOT NULL DEFAULT 0,
     total_output_tokens BIGINT NOT NULL DEFAULT 0,
     estimated_cost_usd NUMERIC(12, 6) NOT NULL DEFAULT 0,
     tool_call_count INTEGER NOT NULL DEFAULT 0,
     error TEXT
 );
+
+ALTER TABLE asset_reliability.agent_runs
+    ADD COLUMN IF NOT EXISTS approval_replay_state TEXT,
+    ADD COLUMN IF NOT EXISTS approval_claimed_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS approval_claimed_by TEXT;
+
+-- Each successful Gateway replay emits one immutable receipt. The request hash binds the
+-- human decision to the exact JSON-RPC bytes that were paused by Unity Gateway without
+-- persisting the operator's OBO bearer token.
+CREATE TABLE IF NOT EXISTS asset_reliability.governance_receipts (
+    receipt_id UUID PRIMARY KEY,
+    run_id UUID NOT NULL REFERENCES asset_reliability.agent_runs(run_id),
+    incident_id UUID NOT NULL REFERENCES asset_reliability.incidents(incident_id),
+    elicitation_id TEXT NOT NULL UNIQUE,
+    request_sha256 TEXT NOT NULL CHECK (length(request_sha256) = 64),
+    approving_subject TEXT NOT NULL,
+    decision TEXT NOT NULL CHECK (decision IN ('ALLOW', 'DENY')),
+    requested_at TIMESTAMPTZ NOT NULL,
+    decided_at TIMESTAMPTZ NOT NULL,
+    completed_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE OR REPLACE FUNCTION asset_reliability.reject_governance_receipt_mutation()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RAISE EXCEPTION 'governance receipts are immutable';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS governance_receipts_are_immutable
+    ON asset_reliability.governance_receipts;
+
+CREATE TRIGGER governance_receipts_are_immutable
+BEFORE UPDATE OR DELETE ON asset_reliability.governance_receipts
+FOR EACH ROW EXECUTE FUNCTION asset_reliability.reject_governance_receipt_mutation();
 
 CREATE TABLE IF NOT EXISTS asset_reliability.activity_events (
     event_id UUID PRIMARY KEY,
