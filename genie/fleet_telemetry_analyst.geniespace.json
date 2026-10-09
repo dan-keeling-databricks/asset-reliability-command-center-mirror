@@ -129,7 +129,7 @@
           "Which pumps had the highest average vibration in the last 15 minutes?"
         ],
         "sql": [
-          "SELECT pump_id, AVG(vibration_mm_s) AS average_vibration_mm_s FROM classic_stable_realtime_demos_catalog.asset_reliability_command_center.pump_telemetry_history WHERE event_time >= current_timestamp() - INTERVAL 15 MINUTES GROUP BY pump_id ORDER BY average_vibration_mm_s DESC"
+          "SELECT telemetry.pump_id, ROUND(AVG(telemetry.vibration_mm_s), 1) AS average_vibration_mm_s FROM classic_stable_realtime_demos_catalog.asset_reliability_command_center.pump_telemetry_history AS telemetry WHERE telemetry.event_time >= current_timestamp() - INTERVAL 15 MINUTES GROUP BY telemetry.pump_id ORDER BY average_vibration_mm_s DESC"
         ]
       },
       {
@@ -138,7 +138,7 @@
           "Show vibration and bearing temperature for P-204 over the last 10 minutes."
         ],
         "sql": [
-          "SELECT event_time, vibration_mm_s, bearing_temperature_c FROM classic_stable_realtime_demos_catalog.asset_reliability_command_center.pump_telemetry_history WHERE pump_id = 'P-204' AND event_time >= current_timestamp() - INTERVAL 10 MINUTES ORDER BY event_time"
+          "SELECT telemetry.event_time, ROUND(telemetry.vibration_mm_s, 1) AS vibration_mm_s, ROUND(telemetry.bearing_temperature_c, 1) AS bearing_temperature_c FROM classic_stable_realtime_demos_catalog.asset_reliability_command_center.pump_telemetry_history AS telemetry WHERE telemetry.pump_id = 'P-204' AND telemetry.event_time >= current_timestamp() - INTERVAL 10 MINUTES ORDER BY telemetry.event_time"
         ]
       },
       {
@@ -147,7 +147,7 @@
           "Compare average operating measurements by pump for the last hour."
         ],
         "sql": [
-          "SELECT pump_id, AVG(flow_m3h) AS average_flow_m3h, AVG(discharge_pressure_bar) AS average_discharge_pressure_bar, AVG(vibration_mm_s) AS average_vibration_mm_s, AVG(bearing_temperature_c) AS average_bearing_temperature_c, AVG(motor_current_a) AS average_motor_current_a FROM classic_stable_realtime_demos_catalog.asset_reliability_command_center.pump_telemetry_history WHERE event_time >= current_timestamp() - INTERVAL 1 HOUR GROUP BY pump_id ORDER BY pump_id"
+          "SELECT telemetry.pump_id, ROUND(AVG(telemetry.flow_m3h), 1) AS average_flow_m3h, ROUND(AVG(telemetry.discharge_pressure_bar), 1) AS average_discharge_pressure_bar, ROUND(AVG(telemetry.vibration_mm_s), 1) AS average_vibration_mm_s, ROUND(AVG(telemetry.bearing_temperature_c), 1) AS average_bearing_temperature_c, ROUND(AVG(telemetry.motor_current_a), 1) AS average_motor_current_a FROM classic_stable_realtime_demos_catalog.asset_reliability_command_center.pump_telemetry_history AS telemetry WHERE telemetry.event_time >= current_timestamp() - INTERVAL 1 HOUR GROUP BY telemetry.pump_id ORDER BY telemetry.pump_id"
         ]
       }
     ],
@@ -159,7 +159,8 @@
           "Interpret event_time and ingested_at as UTC timestamps. Always state the requested or inferred time range.",
           "Use the units encoded in column names and descriptions: flow in cubic metres per hour, pressure in bar, vibration in millimetres per second, temperature in degrees Celsius, and current in amperes.",
           "Do not claim operational outcomes, classifications, root causes, or failure probabilities from telemetry alone. Describe observed measurements and trends, and make uncertainty explicit.",
-          "For ranking questions, aggregate by pump_id and return the measured value and units. For time-series questions, order results by event_time."
+          "For ranking questions, aggregate by pump_id and return the measured value and units. For time-series questions, order results by event_time.",
+          "## Instructions you must follow when providing summaries\n- Format every numeric measurement, aggregate, percentage, and duration in answers to one decimal place. When generating SQL, round decimal-valued outputs to one decimal place. Do not alter pump identifiers or timestamps."
         ]
       }
     ]
