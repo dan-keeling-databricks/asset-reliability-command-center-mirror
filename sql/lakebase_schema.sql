@@ -102,6 +102,12 @@ ALTER TABLE asset_reliability.scenario_commands
     ADD COLUMN IF NOT EXISTS claim_version BIGINT NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0;
 
+-- A command claimed before lease support was deployed has no expiry and would otherwise be
+-- stranded forever. Expiring it in place lets the version-fenced producer reclaim it safely.
+UPDATE asset_reliability.scenario_commands
+SET lease_expires_at = clock_timestamp() - interval '1 second'
+WHERE status = 'claimed' AND lease_expires_at IS NULL;
+
 CREATE INDEX IF NOT EXISTS scenario_commands_pending_idx
     ON asset_reliability.scenario_commands (requested_at)
     WHERE status = 'pending';
@@ -213,6 +219,8 @@ CREATE TABLE IF NOT EXISTS asset_reliability.agent_runs (
     ),
     approval_claimed_at TIMESTAMPTZ,
     approval_claimed_by TEXT,
+    approval_claim_id UUID,
+    approval_claim_version BIGINT NOT NULL DEFAULT 0,
     total_input_tokens BIGINT NOT NULL DEFAULT 0,
     total_output_tokens BIGINT NOT NULL DEFAULT 0,
     estimated_cost_usd NUMERIC(12, 6) NOT NULL DEFAULT 0,
@@ -223,7 +231,30 @@ CREATE TABLE IF NOT EXISTS asset_reliability.agent_runs (
 ALTER TABLE asset_reliability.agent_runs
     ADD COLUMN IF NOT EXISTS approval_replay_state TEXT,
     ADD COLUMN IF NOT EXISTS approval_claimed_at TIMESTAMPTZ,
-    ADD COLUMN IF NOT EXISTS approval_claimed_by TEXT;
+    ADD COLUMN IF NOT EXISTS approval_claimed_by TEXT,
+    ADD COLUMN IF NOT EXISTS approval_claim_id UUID,
+    ADD COLUMN IF NOT EXISTS approval_claim_version BIGINT NOT NULL DEFAULT 0;
+
+-- CREATE TABLE constraints are not retroactively applied to an existing live table. Add the
+-- replay-state contract explicitly and validate it after the additive column migration.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'agent_runs_approval_replay_state_check'
+          AND conrelid = 'asset_reliability.agent_runs'::regclass
+    ) THEN
+        ALTER TABLE asset_reliability.agent_runs
+            ADD CONSTRAINT agent_runs_approval_replay_state_check
+            CHECK (approval_replay_state IN ('pending', 'claimed', 'completed')) NOT VALID;
+    END IF;
+END;
+$$;
+
+-- Also finishes validation if an earlier deployment added the constraint as NOT VALID but was
+-- interrupted before the scan completed.
+ALTER TABLE asset_reliability.agent_runs
+    VALIDATE CONSTRAINT agent_runs_approval_replay_state_check;
 
 -- Each successful Gateway replay emits one immutable receipt. The request hash binds the
 -- human decision to the exact JSON-RPC bytes that were paused by Unity Gateway without

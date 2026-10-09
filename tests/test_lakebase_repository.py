@@ -31,6 +31,29 @@ def test_schema_persists_command_leases_and_immutable_governance_receipts() -> N
     assert "governance_receipts_are_immutable" in schema
 
 
+def test_schema_repairs_legacy_leases_and_adds_versioned_approval_claims() -> None:
+    schema = (Path(__file__).resolve().parents[1] / "sql" / "lakebase_schema.sql").read_text()
+
+    assert "status = 'claimed' AND lease_expires_at IS NULL" in schema
+    assert "approval_claim_id UUID" in schema
+    assert "approval_claim_version BIGINT NOT NULL DEFAULT 0" in schema
+    assert "agent_runs_approval_replay_state_check" in schema
+    assert "VALIDATE CONSTRAINT agent_runs_approval_replay_state_check" in schema
+
+
+def test_runtime_mutations_are_fenced_by_active_scenario_and_approval_claim() -> None:
+    source = (
+        Path(__file__).resolve().parents[1] / "backend" / "lakebase_repository.py"
+    ).read_text()
+
+    assert "scenario.status = 'active'" in source
+    assert "run.approval_claim_id = %s::uuid" in source
+    assert "run.approval_claim_version = %s" in source
+    assert "run.approval_replay_state = 'claimed'" in source
+    assert "Governed work order rejected because its scenario or " in source
+    assert '"approval claim is stale"' in source
+
+
 def wait_repository(*, revision: int = 0, coalesce_seconds: float = 0.01):
     repository = LakebaseCommandCenterRepository.__new__(LakebaseCommandCenterRepository)
     repository._revision = revision
@@ -170,16 +193,15 @@ def test_sequence_allocation_locks_parent_rows() -> None:
         Path(__file__).resolve().parents[1] / "backend" / "lakebase_repository.py"
     ).read_text()
 
-    assert "SELECT run_id FROM {} WHERE incident_id = %s::uuid FOR UPDATE" in source
-    assert "SELECT incident_id FROM {} WHERE incident_id = %s::uuid FOR UPDATE" in source
+    assert "SELECT run.run_id FROM {} run" in source
+    assert "FOR UPDATE OF run" in source
+    assert "SELECT incident.incident_id FROM {} incident" in source
+    assert "FOR UPDATE OF incident" in source
 
 
 def test_producer_commands_use_versioned_recoverable_leases() -> None:
     source = (
-        Path(__file__).resolve().parents[1]
-        / "src"
-        / "producer"
-        / "pump_telemetry_producer.py"
+        Path(__file__).resolve().parents[1] / "src" / "producer" / "pump_telemetry_producer.py"
     ).read_text()
 
     assert "lease_expires_at < now()" in source

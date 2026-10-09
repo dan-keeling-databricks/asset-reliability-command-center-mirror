@@ -385,9 +385,7 @@ class ProductionCommandCenterRuntime:
                     summary = canonical_rationale
                 canonical_terminal = (
                     _canonical_terminal_response(summary)
-                    if not tool_calls
-                    and last_risk
-                    and last_risk.get("risk_band") != "high"
+                    if not tool_calls and last_risk and last_risk.get("risk_band") != "high"
                     else None
                 )
                 await self.repository.append_activity(
@@ -586,21 +584,23 @@ class ProductionCommandCenterRuntime:
         identity = self.identities.get(incident.scenario_id)
         if not identity:
             return False
-        claimed = await self.repository.claim_pending_approval(
-            incident_id, approving_subject
-        )
+        claimed = await self.repository.claim_pending_approval(incident_id, approving_subject)
         if not claimed:
             latest = await self.repository.incident(incident_id)
             return bool(latest and latest.status == "completed")
-        pending = claimed
+        pending = claimed.pending
         try:
             replay_started_at = utc_now()
             result = await self.gateway.replay(pending.serialized_request, identity.token)
         except GatewayAsk:
-            await self.repository.release_pending_approval(incident_id)
+            await self.repository.release_pending_approval(
+                incident_id, claimed.claim_id, claimed.version
+            )
             return False
         except Exception:
-            await self.repository.release_pending_approval(incident_id)
+            await self.repository.release_pending_approval(
+                incident_id, claimed.claim_id, claimed.version
+            )
             raise
         replay_completed_at = utc_now()
         data = _structured(result)
@@ -616,14 +616,21 @@ class ProductionCommandCenterRuntime:
             "decided_at": replay_started_at.isoformat(),
             "completed_at": replay_completed_at.isoformat(),
         }
-        await self.repository.record_governance_receipt(
-            incident_id, work_order_id, receipt
+        finalized = await self.repository.record_governance_receipt(
+            incident_id,
+            work_order_id,
+            receipt,
+            claimed.claim_id,
+            claimed.version,
         )
+        if not finalized:
+            return False
         await self._complete_governed_action(
             incident_id,
             result,
             started_at=replay_started_at,
             completed_at=replay_completed_at,
+            persist_completion=False,
         )
         await self._generate_post_approval_response(incident_id, incident, result)
         return True
@@ -635,6 +642,7 @@ class ProductionCommandCenterRuntime:
         *,
         started_at: datetime,
         completed_at: datetime,
+        persist_completion: bool = True,
     ) -> None:
         data = _structured(result)
         work_order_id = data.get("work_order_id", "Work order")
@@ -656,7 +664,8 @@ class ProductionCommandCenterRuntime:
                 completed_at=completed_at,
             ),
         )
-        await self.repository.complete_incident(incident_id, str(work_order_id))
+        if persist_completion:
+            await self.repository.complete_incident(incident_id, str(work_order_id))
 
     async def _generate_post_approval_response(
         self, incident_id: str, incident: IncidentDetail, result: dict[str, Any]
@@ -922,11 +931,7 @@ def _canonical_terminal_response(content: str) -> str | None:
     values: list[str] = []
     for index, label in enumerate(labels):
         next_label = labels[index + 1] if index + 1 < len(labels) else None
-        boundary = (
-            rf"(?=\s*(?:[-*]\s*)?\*{{0,2}}{next_label}:\*{{0,2}})"
-            if next_label
-            else r"$"
-        )
+        boundary = rf"(?=\s*(?:[-*]\s*)?\*{{0,2}}{next_label}:\*{{0,2}})" if next_label else r"$"
         match = re.search(
             rf"(?:[-*]\s*)?\*{{0,2}}{label}:\*{{0,2}}\s*(.*?){boundary}",
             cleaned,
@@ -938,6 +943,4 @@ def _canonical_terminal_response(content: str) -> str | None:
         if not value:
             return None
         values.append(value)
-    return "\n".join(
-        f"- **{label}:** {value}" for label, value in zip(labels, values, strict=True)
-    )
+    return "\n".join(f"- **{label}:** {value}" for label, value in zip(labels, values, strict=True))
