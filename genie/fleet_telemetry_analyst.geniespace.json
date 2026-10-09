@@ -95,8 +95,8 @@
               "asset",
               "pump"
             ],
-            "enable_entity_matching": true,
-            "get_example_values": true
+          "enable_format_assistance": true,
+          "enable_entity_matching": true
           },
           {
             "column_name": "source",

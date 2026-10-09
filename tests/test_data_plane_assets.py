@@ -92,6 +92,20 @@ def test_genie_id_keyed_arrays_are_sorted_and_well_formed() -> None:
     assert len(all_ids) == len(set(all_ids))
 
 
+def test_genie_v2_uses_only_v2_column_assistance_fields() -> None:
+    definition = json.loads(GENIE.read_text())
+    assert definition["version"] == 2
+
+    columns = definition["data_sources"]["tables"][0]["column_configs"]
+    serialized = json.dumps(columns)
+    assert "get_example_values" not in serialized
+    assert "build_value_dictionary" not in serialized
+
+    pump_id = next(item for item in columns if item["column_name"] == "pump_id")
+    assert pump_id["enable_format_assistance"] is True
+    assert pump_id["enable_entity_matching"] is True
+
+
 def test_bundle_uses_classic_pipeline_native_genie_and_obo_scope() -> None:
     bundle = (ROOT / "databricks.yml").read_text()
     app = (ROOT / "app.yaml").read_text()
