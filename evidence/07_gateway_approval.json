@@ -1,0 +1,39 @@
+{
+  "incident_id": "13c50285-aba5-444c-b5b6-bba810f2a452",
+  "run_id": "74b9404f-f427-477f-a3ee-c0300efe7bdf",
+  "mcp_server": "asset_reliability_mcp",
+  "initial_tool_response": {
+    "tool": "submit_work_order",
+    "decision": "ASK",
+    "execution": "Not executed",
+    "status": "waiting",
+    "requested_at": "2026-10-12T10:18:02.270128Z",
+    "elicitation_id": "945eb42d-df89-43a4-883e-df753209cdf1",
+    "request_sha256": "620b94e78c0ccf84189d042cb921d91b8f79e7ff1941051f193b29e857f7d2a5"
+  },
+  "human_decision": {
+    "approving_subject": "[SANITIZED_HUMAN_SUBJECT]",
+    "decision": "ALLOW",
+    "decided_at": "2026-10-12T10:20:09.982808Z"
+  },
+  "single_flight_replay": {
+    "same_request_sha256": "620b94e78c0ccf84189d042cb921d91b8f79e7ff1941051f193b29e857f7d2a5",
+    "execution_count": 1,
+    "execution": "Executed",
+    "completed_at": "2026-10-12T10:20:10.333199Z",
+    "work_orders_created": ["WO-35374"]
+  },
+  "immutable_receipt": {
+    "receipt_id": "448ba4ce-f5ff-416a-bc11-e21ed1f1dde9",
+    "elicitation_id": "945eb42d-df89-43a4-883e-df753209cdf1",
+    "request_sha256": "620b94e78c0ccf84189d042cb921d91b8f79e7ff1941051f193b29e857f7d2a5",
+    "decision": "ALLOW"
+  },
+  "direct_human_mcp_probe": {
+    "request": "POST /mcp with signed-in human bearer identity and tools/list JSON-RPC method",
+    "http_status": 403,
+    "response": {"detail": "Gateway source principal required"},
+    "interpretation": "The App rejects a direct human-source call; governed agent traffic must arrive with the Gateway source principal."
+  }
+}
+

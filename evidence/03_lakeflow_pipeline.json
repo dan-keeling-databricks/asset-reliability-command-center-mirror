@@ -1,0 +1,64 @@
+{
+  "captured_at": "2026-10-12T10:22:50Z",
+  "pipeline": {
+    "pipeline_id": "a0efdccf-440d-479b-8fc2-7cceb0bb3da2",
+    "name": "Asset Reliability - governed telemetry history",
+    "state": "RUNNING",
+    "catalog": "classic_stable_realtime_demos_catalog",
+    "schema": "asset_reliability_command_center",
+    "edition": "ADVANCED",
+    "update_id": "66ebb87e-a19a-4d42-b647-4a139bbe155b",
+    "update_state": "RUNNING",
+    "update_cause": "JOB_TASK",
+    "update_created_epoch_ms": 1791799651612
+  },
+  "event_log_excerpt": [
+    {
+      "timestamp": "2026-10-12T10:14:41.785Z",
+      "event_type": "dataset_definition",
+      "message": "Dataset telemetry_silver defined as STREAMING_TABLE."
+    },
+    {
+      "timestamp": "2026-10-12T10:14:41.799Z",
+      "event_type": "dataset_definition",
+      "message": "Dataset pump_telemetry_history defined as VIEW."
+    },
+    {
+      "timestamp": "2026-10-12T10:14:41.812Z",
+      "event_type": "dataset_definition",
+      "message": "Dataset telemetry_bronze defined as STREAMING_TABLE."
+    },
+    {
+      "timestamp": "2026-10-12T10:14:41.825Z",
+      "event_type": "dataset_definition",
+      "message": "Dataset telemetry_quarantine defined as STREAMING_TABLE."
+    },
+    {
+      "timestamp": "2026-10-12T10:14:43.382Z",
+      "event_type": "flow_progress",
+      "message": "Flow telemetry_bronze is RUNNING."
+    },
+    {
+      "timestamp": "2026-10-12T10:14:45.172Z",
+      "event_type": "flow_progress",
+      "message": "Flow telemetry_silver is RUNNING."
+    },
+    {
+      "timestamp": "2026-10-12T10:14:47.208Z",
+      "event_type": "flow_progress",
+      "message": "Flow telemetry_quarantine is RUNNING."
+    }
+  ],
+  "query_results": {
+    "statement_id": "01f1c626-d929-126b-9256-5813b00c6ab5",
+    "state": "SUCCEEDED",
+    "rows": [
+      ["telemetry_bronze", 3884768],
+      ["telemetry_silver", 3884704],
+      ["telemetry_quarantine", 0],
+      ["pump_telemetry_history", 3884704]
+    ]
+  },
+  "interpretation": "The continuous SQL Lakeflow pipeline defined and started all three persisted datasets plus the governed view. At capture time it had processed 3,884,768 Bronze rows and exposed 3,884,704 validated Silver/view rows. Quarantine was empty for the current valid synthetic feed."
+}
+

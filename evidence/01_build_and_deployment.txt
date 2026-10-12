@@ -1,0 +1,62 @@
+Capture date: 2026-10-12 UTC
+Workspace: https://fevm-classic-stable-realtime-demos.cloud.databricks.com
+Deployed commit: 940c383fa91f9bd98f5ca0994d370b820396e582
+
+$ uv run ruff check backend tests src scripts
+All checks passed!
+
+$ uv run pytest
+collected 109 items
+tests/test_api.py ............                                           [ 11%]
+tests/test_code_documentation.py .........................               [ 33%]
+tests/test_data_plane_assets.py ..............                           [ 46%]
+tests/test_deploy.py ......                                              [ 52%]
+tests/test_gateway.py ..                                                 [ 54%]
+tests/test_genie.py .......                                              [ 60%]
+tests/test_governance_deployment.py ......                               [ 66%]
+tests/test_lakebase_repository.py .................                      [ 81%]
+tests/test_production_runtime.py ....................                    [100%]
+109 passed, 2 warnings in 2.49s
+
+$ npm --prefix frontend run typecheck
+> tsc -b --pretty false
+Exit code: 0
+
+$ npm --prefix frontend run build
+vite v8.3.0 building client environment for production...
+269 modules transformed.
+dist/index.html                   0.84 kB | gzip:   0.52 kB
+dist/assets/index-CIHZHhqv.css   42.17 kB | gzip:   9.30 kB
+dist/assets/index-Be4Kt1wj.js   406.65 kB | gzip: 123.73 kB
+built in 127ms
+
+$ databricks bundle validate -t dev --profile fe_vm_rtm
+Name: asset-reliability-command-center
+Target: dev
+Workspace host: https://fevm-classic-stable-realtime-demos.cloud.databricks.com
+Validation OK!
+
+LIVE APP DEPLOYMENT
+name: asset-reliability-center
+deployment_id: 01f1c625d12d1674b68fb5f905d91d5d
+mode: SNAPSHOT
+deployment_status: SUCCEEDED
+app_status: RUNNING
+compute_status: ACTIVE
+create_time: 2026-10-12T10:15:15Z
+update_time: 2026-10-12T10:15:26Z
+
+LIVE APP PROVENANCE
+GET /api/build-info -> HTTP 200
+{"git_commit":"940c383fa91f9bd98f5ca0994d370b820396e582"}
+
+DEPENDENCY-ORDERED PLATFORM RUNS
+- Lakebase schema migration run 119374281994622: TERMINATED / SUCCESS
+- Curated telemetry grant run 140411523321696: TERMINATED / SUCCESS
+- Unity Gateway policy-function run 521866526690535: TERMINATED / SUCCESS
+
+Interpretation: the committed source passed all local quality gates, the bundle validated against
+the target workspace, the App deployment succeeded, and the live App reported the exact submitted
+Git revision. Platform jobs then completed the database migration, curated grant, and governance
+policy reconciliation successfully.
+

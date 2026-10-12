@@ -1,0 +1,39 @@
+{
+  "captured_at": "2026-10-12T10:24:00Z",
+  "workspace": "https://fevm-classic-stable-realtime-demos.cloud.databricks.com",
+  "producer": {
+    "job_id": 952037348530266,
+    "run_id": 410215715966481,
+    "task_run_id": 912441410965217,
+    "task_key": "produce_telemetry",
+    "life_cycle_state": "RUNNING",
+    "cluster_id": "1012-100733-xmuajbpo",
+    "start_time_epoch_ms": 1791799632109,
+    "operational_progress": {
+      "component": "telemetry-producer",
+      "status": "healthy",
+      "observed_at": "2026-10-12T10:23:43.550502Z",
+      "phase": "streaming",
+      "messages_produced": 12568
+    }
+  },
+  "real_time_mode_sink": {
+    "job_id": 17156207332698,
+    "run_id": 371869867772465,
+    "task_run_id": 234543473936956,
+    "task_key": "ingest_pump_telemetry",
+    "life_cycle_state": "RUNNING",
+    "cluster_id": "1012-100935-t3kevfv0",
+    "start_time_epoch_ms": 1791799633160,
+    "lakebase_sink_proof": {
+      "scenario_id": "3bd336aa-d1a8-40b1-82f5-c175c1046975",
+      "latest_sequence": 812,
+      "latest_event_time": "2026-10-12T10:23:45.036865Z",
+      "latest_ingested_at": "2026-10-12T10:23:45.064192Z",
+      "latest_kafka_offset": 1818598,
+      "app_reported_kafka_to_lakebase_latency_ms": 57
+    }
+  },
+  "continuous_run_note": "The Jobs run-output API returned an empty notebook_output while both continuous tasks were RUNNING. The live Lakebase heartbeat, increasing sequence/offset values, and fresh sink timestamps are the committed progress proof; no output was invented."
+}
+
