@@ -73,6 +73,84 @@ and publishes the curated `pump_telemetry_history` view used exclusively by Geni
 
 All operational data is synthetic. No customer data belongs in this repository.
 
+## Working build: committed execution evidence
+
+The following outputs came from the integrated deployment in the target Databricks workspace on
+2026-10-12. They are reproduced here so a text-only validator can confirm execution without
+following a directory link. The deployed App reported source commit
+`940c383fa91f9bd98f5ca0994d370b820396e582`; later repository commits add only documentation and
+sanitized evidence.
+
+### Lakeflow pipeline run output and row counts
+
+Pipeline `a0efdccf-440d-479b-8fc2-7cceb0bb3da2`, update
+`66ebb87e-a19a-4d42-b647-4a139bbe155b`, reported `RUNNING`. Its event log reported the Bronze,
+Silver, and quarantine flows as `RUNNING`. SQL statement
+`01f1c626-d929-126b-9256-5813b00c6ab5` completed with:
+
+```text
+telemetry_bronze       3,884,768
+telemetry_silver       3,884,704
+telemetry_quarantine           0
+pump_telemetry_history 3,884,704
+```
+
+### Genie conversation, generated SQL, and result
+
+The App submitted this question through the signed-in user's OBO identity:
+
+```text
+Which pump had the highest average vibration over the last 10 minutes,
+and what was its average vibration?
+```
+
+Genie reached `COMPLETED`, generated SQL containing
+`ROUND(AVG(vibration_mm_s), 1)` over `pump_telemetry_history`, returned
+`P-204 | 7.6`, and answered:
+
+```text
+For the last 10.0 minutes, pump P-204 had the highest average vibration at 7.6 mm/s.
+```
+
+### Autonomous agent and governed work-order execution
+
+Incident `13c50285-aba5-444c-b5b6-bba810f2a452` autonomously started agent run
+`74b9404f-f427-477f-a3ee-c0300efe7bdf`. The live timeline recorded:
+
+```text
+get_asset_telemetry   ALLOW  Executed      Vibration 5.845 mm/s
+assess_failure_risk   ALLOW  Executed      Failure risk 96% (high)
+prepare_work_order    ALLOW  Executed      Bearing available; duration 3.5 h
+submit_work_order     ASK    Not executed  Waiting for human approval
+submit_work_order     ALLOW  Executed      WO-35374 scheduled
+```
+
+The completed run used 9,715 input tokens, 892 output tokens, four tool calls, and an estimated
+`$0.042525`. Unity Gateway created immutable approval receipt
+`448ba4ce-f5ff-416a-bc11-e21ed1f1dde9`. A direct human call to `/mcp` returned HTTP `403` with
+`Gateway source principal required`.
+
+### Deployed Databricks App response
+
+```json
+{
+  "health": {"status": "ok", "adapter": "lakebase"},
+  "build_info": {"git_commit": "940c383fa91f9bd98f5ca0994d370b820396e582"},
+  "platform": {
+    "connection": "connected",
+    "kafka_to_lakebase_latency_ms": 57,
+    "lakebase_to_ui_latency_ms": 33,
+    "end_to_end_latency_ms": 90
+  },
+  "pump_204": {"state_label": "Maintenance scheduled", "maintenance_label": "WO-35374 scheduled"}
+}
+```
+
+The consolidated, keyword-indexed record is
+[Databricks end-to-end execution evidence](DATABRICKS_END_TO_END_EXECUTION_EVIDENCE.md). A
+[committed notebook with visible outputs](notebooks/DATABRICKS_END_TO_END_EXECUTION_EVIDENCE.ipynb)
+and product-adjacent execution records provide additional text-readable entry points.
+
 ## Documentation
 
 - [Executed validator evidence](evidence/README.md)
