@@ -1,8 +1,9 @@
 # One-time validator evidence package
 
-The validator reads text and cannot infer execution from source code, screenshots, or a narrated
-video. After the final integrated deployment passes acceptance, create one curated, sanitized
-`evidence/` package and commit it once. This is not a recurring evidence service.
+The repository now contains the curated, sanitized [`evidence/`](../evidence/README.md) capture
+from the accepted integrated run on 2026-10-12. The validator reads text and cannot infer
+execution from source code, screenshots, or a narrated video, so these committed outputs are the
+primary proof that the build ran.
 
 ## Rules
 
@@ -15,7 +16,7 @@ video. After the final integrated deployment passes acceptance, create one curat
 - Do not rewrite raw outputs to make a failed run appear successful. Add a short interpretation
   beside the original sanitized output.
 
-## Required layout
+## Committed layout
 
 ```text
 evidence/
@@ -31,9 +32,9 @@ evidence/
 └── 09_app_health.json
 ```
 
-### `README.md`
+### Evidence index
 
-Record:
+The committed `evidence/README.md` records:
 
 - Git commit and App deployment ID;
 - workspace and UTC capture time;
@@ -44,19 +45,20 @@ Record:
 
 ### Build and platform execution
 
-`01_build_and_deployment.txt` should contain the successful quality-gate summary, bundle
-validation, generated build-info response, and governance reconciliation/policy-probe output.
+`01_build_and_deployment.txt` contains the successful quality-gate summary, bundle validation,
+generated build-info response, and governance reconciliation output.
 
-`02_streaming_jobs.json` should contain sanitized `jobs list-runs`/run output proving both the
-producer and RTM tasks reached `RUNNING`, plus notebook log excerpts showing broker publication,
-RTM progress, and Lakebase sink activity.
+`02_streaming_jobs.json` contains sanitized job/run output proving both the producer and RTM tasks
+reached `RUNNING`, plus live producer heartbeat and Lakebase sink records. The continuous Jobs API
+returned no notebook output while the tasks were running; the evidence records that limitation
+explicitly instead of fabricating log text.
 
-`03_lakeflow_pipeline.json` should contain the pipeline definition/update status and Lakeflow
-event-log output proving Bronze/Silver/quarantine datasets were created and processed records.
+`03_lakeflow_pipeline.json` contains the pipeline definition/update status, Lakeflow event-log
+events, and live Bronze/Silver/quarantine/view counts.
 
 ### Governed and operational data
 
-`04_unity_catalog_queries.md` should include the SQL and textual results for:
+`04_unity_catalog_queries.md` includes the SQL and textual results for:
 
 - Bronze, Silver, quarantine, and curated-view row counts;
 - recent validated telemetry with event and ingestion timestamps;
@@ -64,15 +66,15 @@ event-log output proving Bronze/Silver/quarantine datasets were created and proc
 - `SHOW GRANTS` proving the existing group can select the view but not Bronze/Silver/quarantine;
 - the curated view schema proving scenario and broker-control fields are absent.
 
-`05_lakebase_queries.md` should include sanitized SQL and results for recent telemetry, the three
+`05_lakebase_queries.md` includes sanitized SQL and results for recent telemetry, the three
 incident outcomes, the governed work order, component heartbeats, and the immutable receipt.
 
 ### AI and governance execution
 
-`06_agent_run.json` should contain the real autonomous prompt, actual Sonnet model outputs,
+`06_agent_run.json` contains the real autonomous prompt, actual Sonnet model outputs,
 runtime-discovered Skill/MCP/tools, tool calls/results, total tokens, cost, and final outcome.
 
-`07_gateway_approval.json` should prove:
+`07_gateway_approval.json` proves:
 
 - `submit_work_order` returned native `ASK` with `execution=not executed`;
 - the human approval subject and elicitation/request identifiers;
@@ -80,19 +82,20 @@ runtime-discovered Skill/MCP/tools, tool calls/results, total tokens, cost, and 
 - one resulting work order and immutable receipt;
 - a human direct-source `/mcp` call was denied.
 
-`08_genie_conversation.json` should contain one OBO telemetry question, status transitions,
+`08_genie_conversation.json` contains one OBO telemetry question, status transitions,
 generated SQL, returned columns/rows, source identity, and the final answer. Do not include the
 forwarded user token.
 
-`09_app_health.json` should contain `/api/health`, `/api/build-info`, and a sanitized dashboard
+`09_app_health.json` contains `/api/health`, `/api/build-info`, and a sanitized dashboard
 snapshot showing connected/fresh component state and measured latency.
 
-## Final review
+## Automated review
 
-Before committing the package:
+`tests/test_evidence_package.py` checks:
 
-1. Search for token, secret, authorization, password, DSN, and cookie patterns.
-2. Confirm every file is readable without rendering an image.
-3. Confirm identifiers agree across the App, Lakebase, Gateway, and deployment records.
-4. Confirm the commit in evidence matches the repository commit being submitted.
-5. Link the package from the evidence README and submission narrative.
+1. All ten promised files exist and are nonempty.
+2. Every JSON capture parses.
+3. No template placeholders remain.
+4. Identifiers agree across the App, Lakebase, Gateway, and deployment records.
+5. No JWT, bearer credential, client secret, private key, password-bearing DSN, or personal
+   Databricks email appears in the package.

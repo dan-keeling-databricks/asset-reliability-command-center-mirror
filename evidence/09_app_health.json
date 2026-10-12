@@ -1,0 +1,46 @@
+{
+  "captured_at": "2026-10-12T10:24:02Z",
+  "app_url": "https://asset-reliability-center-7474659563748021.aws.databricksapps.com",
+  "deployment_id": "01f1c625d12d1674b68fb5f905d91d5d",
+  "health": {
+    "http_status": 200,
+    "response": {
+      "status": "ok",
+      "adapter": "lakebase",
+      "detail": "Lakebase - live operational state"
+    }
+  },
+  "build_info": {
+    "http_status": 200,
+    "response": {
+      "git_commit": "940c383fa91f9bd98f5ca0994d370b820396e582"
+    }
+  },
+  "dashboard": {
+    "http_status": 200,
+    "scenario_id": "3bd336aa-d1a8-40b1-82f5-c175c1046975",
+    "revision": 49,
+    "platform": {
+      "connection": "connected",
+      "source_label": "Lakebase - live operational state",
+      "latency_ms": 33,
+      "kafka_to_lakebase_latency_ms": 57,
+      "lakebase_to_ui_latency_ms": 33,
+      "end_to_end_latency_ms": 90,
+      "last_event_at": "2026-10-12T10:24:02.098691Z"
+    },
+    "pump_204": {
+      "state": "warning",
+      "state_label": "Maintenance scheduled",
+      "vibration_mm_s": 8.042,
+      "warning_threshold_mm_s": 4.4,
+      "maintenance_label": "WO-35374 scheduled"
+    },
+    "incident_history": [
+      {"pump_id": "P-204", "status": "maintenance_scheduled", "status_label": "Maintenance scheduled"},
+      {"pump_id": "P-202", "status": "resolved", "status_label": "Reviewed - no action"},
+      {"pump_id": "P-207", "status": "resolved", "status_label": "Reviewed - no action"}
+    ],
+    "active_runs": []
+  }
+}

@@ -66,6 +66,7 @@ All operational data is synthetic. No customer data belongs in this repository.
 
 ## Documentation
 
+- [Executed validator evidence](evidence/README.md)
 - [Business demo flow](DEMO.md)
 - [Technical architecture](docs/ARCHITECTURE.md)
 - [Manual deployment and live acceptance](docs/DEPLOYMENT.md)

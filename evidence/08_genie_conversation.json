@@ -1,0 +1,20 @@
+{
+  "captured_at": "2026-10-12T10:24:41.701000Z",
+  "execution_mode": "on_behalf_of_user",
+  "obo_ready": true,
+  "caller_subject": "[SANITIZED_USER_SUBJECT]",
+  "space_id": "01f1c3ec3c6913519436513102d0077a",
+  "conversation_id": "01f1c62719ad10cea205668c3d97f07a",
+  "message_id": "01f1c62719c21683b24828be6f5cbcef",
+  "question": "Which pump had the highest average vibration over the last 10 minutes, and what was its average vibration?",
+  "observed_statuses": ["SUBMITTED", "ASKING_AI", "COMPLETED"],
+  "generated_sql": "WITH `avg_vibration` AS (\n  SELECT\n    `pump_id`,\n    ROUND(AVG(`vibration_mm_s`), 1) AS `average_vibration_mm_s`\n  FROM `classic_stable_realtime_demos_catalog`.`asset_reliability_command_center`.`pump_telemetry_history`\n  WHERE `event_time` >= current_timestamp() - INTERVAL 10 MINUTES\n    AND `pump_id` IS NOT NULL\n    AND `vibration_mm_s` IS NOT NULL\n  GROUP BY `pump_id`\n), `ranked` AS (\n  SELECT\n    `pump_id`,\n    `average_vibration_mm_s`,\n    RANK() OVER (ORDER BY `average_vibration_mm_s` DESC) AS `rnk`\n  FROM `avg_vibration`\n)\nSELECT\n  `pump_id`,\n  `average_vibration_mm_s`\nFROM `ranked`\nWHERE `rnk` <= 1\nORDER BY `pump_id`",
+  "columns": ["pump_id", "average_vibration_mm_s"],
+  "rows": [["P-204", "7.6"]],
+  "total_rows": 1,
+  "truncated": false,
+  "answer": "For the last **10.0 minutes**, **pump P-204** had the highest average vibration at **7.6 mm/s**.",
+  "source_label": "Fleet telemetry analyst",
+  "warnings": []
+}
+
