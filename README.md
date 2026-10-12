@@ -25,6 +25,15 @@ degradation pattern, and a consequential maintenance work order stops for policy
 human approval. Operations teams retain a complete record of the evidence, model activity,
 tool calls, approval, and resulting action.
 
+An illustrative target-site projection makes the value test concrete. For 24 critical pumps,
+assume eight forced incidents a year, 7.5 downtime hours per incident, and £80,000 of operational
+impact per hour. A 25% reduction would move the site from 60.0 to 45.0 downtime hours a year,
+recover 15.0 hours of capacity, and reduce annual exposure from £4.8M to £3.6M. That is **£1.2M
+of projected annual value** for the funding executive and, for the reliability leader, an
+operational target of shifting two forced failures into planned work. These are transparent
+illustrative assumptions, not observed prototype results; a buyer should replace them with its
+asset register, failure history, downtime duration, and impact per hour.
+
 The intended business outcome is protected availability with less emergency work. A production
 deployment should measure value against an asset-class baseline using avoided forced-outage or
 lost-production hours, the shift from emergency to planned maintenance, time from threshold
@@ -67,6 +76,9 @@ All operational data is synthetic. No customer data belongs in this repository.
 ## Documentation
 
 - [Executed validator evidence](evidence/README.md)
+- [Business presentation (PDF)](docs/deck/asset-reliability-command-center.pdf)
+- [Business presentation (text-readable Markdown)](docs/deck/asset-reliability-command-center.md)
+- [Business presentation (Google Slides)](https://docs.google.com/presentation/d/1ZjGVpcxIoZDMIautKpRJVBGNnRTJNg9WKH3mFv0_1kI/edit)
 - [Business demo flow](DEMO.md)
 - [Technical architecture](docs/ARCHITECTURE.md)
 - [Manual deployment and live acceptance](docs/DEPLOYMENT.md)
