@@ -1,6 +1,6 @@
 bundle:
   name: asset-reliability-command-center
-  databricks_cli_version: ">=0.250.0"
+  databricks_cli_version: ">=1.17.0"
   deployment:
     lock:
       enabled: true
@@ -22,6 +22,18 @@ variables:
     default: 63.186.81.193:443
   kafka_topic:
     default: asset-reliability-pump-telemetry
+  telemetry_pipeline_node_type:
+    description: Classic-compute worker type for governed telemetry ingestion.
+    default: i3.xlarge
+  app_access_group:
+    description: Existing workspace group allowed to query telemetry through Genie.
+    default: asset-reliability-command-center-operator
+  app_service_principal_client_id:
+    description: Existing Databricks App service-principal application ID used by workloads.
+    default: bd5178cb-8774-4d77-bc63-b4f491716d0b
+  genie_parent_path:
+    description: Workspace folder in which the bundle manages the Genie space.
+    default: /Shared
   lakebase_project_id:
     default: asset-reliability-command-center
   lakebase_endpoint_path:
@@ -29,13 +41,12 @@ variables:
     default: projects/asset-reliability-command-center/branches/production/endpoints/primary
   lakebase_schema:
     default: asset_reliability
-  primary_model:
+  model:
     default: databricks-claude-sonnet-4-5
-  fast_model:
-    default: databricks-gpt-5-1
 
 sync:
   include:
+    - .artifacts/app/**
     - backend/**
     - frontend/dist/**
     - skills/**
@@ -45,8 +56,8 @@ sync:
     - pyproject.toml
     - uv.lock
     - requirements.txt
+    - .build-info.json
   exclude:
-    - .artifacts/**
     - .venv/**
     - "**/__pycache__/**"
     - "**/*.pyc"
@@ -54,6 +65,69 @@ sync:
     - "frontend/*.tsbuildinfo"
 
 resources:
+  cluster_policies:
+    asset_reliability_workloads:
+      name: Asset Reliability — dedicated classic workload policy
+      description: Least-privilege classic compute shapes for the producer, RTM, and UC pipeline.
+      max_clusters_per_user: 6
+      definition: |
+        {
+          "node_type_id": {
+            "type": "fixed",
+            "value": "i3.xlarge"
+          },
+          "num_workers": {
+            "type": "range",
+            "minValue": 0,
+            "maxValue": 1,
+            "defaultValue": 1
+          },
+          "spark_version": {
+            "type": "regex",
+            "pattern": "^(17\\.3\\.x-scala2\\.13|19\\.x-scala2\\.13|dlt:.*)$",
+            "isOptional": true
+          },
+          "spark_conf.spark.databricks.cluster.profile": {
+            "type": "allowlist",
+            "values": ["singleNode"],
+            "isOptional": true
+          },
+          "spark_conf.spark.databricks.streaming.realTimeMode.enabled": {
+            "type": "allowlist",
+            "values": ["true"],
+            "isOptional": true
+          },
+          "spark_conf.spark.sql.shuffle.partitions": {
+            "type": "allowlist",
+            "values": ["1"],
+            "isOptional": true
+          },
+          "runtime_engine": {
+            "type": "allowlist",
+            "values": ["STANDARD", "PHOTON"],
+            "isOptional": true
+          },
+          "enable_elastic_disk": {
+            "type": "fixed",
+            "value": true
+          },
+          "aws_attributes.availability": {
+            "type": "fixed",
+            "value": "ON_DEMAND"
+          },
+          "instance_pool_id": {
+            "type": "forbidden",
+            "hidden": true
+          },
+          "driver_instance_pool_id": {
+            "type": "forbidden",
+            "hidden": true
+          }
+        }
+      permissions:
+        - level: CAN_USE
+          service_principal_name: ${var.app_service_principal_client_id}
+
   volumes:
     runtime_volume:
       name: ${var.volume}
@@ -87,15 +161,83 @@ resources:
               path: ./sql/setup_demo.sql
             warehouse_id: ${var.warehouse_id}
 
+    setup_telemetry_access:
+      name: Asset Reliability — grant curated telemetry access
+      description: Idempotently grants the existing App group access only to the Genie view.
+      tasks:
+        - task_key: grant_curated_view
+          sql_task:
+            file:
+              path: ./sql/grant_telemetry_history.sql
+            warehouse_id: ${var.warehouse_id}
+            parameters:
+              catalog_name: ${var.catalog}
+              schema_fqn: ${var.catalog}.${var.schema}
+              view_fqn: ${var.catalog}.${var.schema}.pump_telemetry_history
+
+    setup_runtime_principal_access:
+      name: Asset Reliability — grant workload identity access
+      description: Grants the existing App service principal only the UC privileges workloads need.
+      tasks:
+        - task_key: grant_runtime_principal
+          sql_task:
+            file:
+              path: ./sql/grant_runtime_principal.sql
+            warehouse_id: ${var.warehouse_id}
+            parameters:
+              catalog_name: ${var.catalog}
+              schema_fqn: ${var.catalog}.${var.schema}
+              volume_fqn: ${var.catalog}.${var.schema}.${var.volume}
+
+    migrate_lakebase_schema:
+      name: Asset Reliability — migrate App-owned Lakebase schema
+      description: Applies idempotent Lakebase DDL as the existing App service principal.
+      run_as:
+        service_principal_name: ${var.app_service_principal_client_id}
+      job_clusters:
+        - job_cluster_key: migration_cluster
+          new_cluster:
+            policy_id: ${resources.cluster_policies.asset_reliability_workloads.id}
+            spark_version: 17.3.x-scala2.13
+            node_type_id: i3.xlarge
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            enable_elastic_disk: true
+            spark_conf:
+              spark.master: local[*, 4]
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+              Workload: asset-reliability-lakebase-migration
+            aws_attributes:
+              availability: ON_DEMAND
+      tasks:
+        - task_key: apply_schema
+          job_cluster_key: migration_cluster
+          notebook_task:
+            notebook_path: ./src/migrations/apply_lakebase_schema.py
+            base_parameters:
+              lakebase_endpoint: ${var.lakebase_endpoint_path}
+              lakebase_database: databricks_postgres
+              lakebase_schema: ${var.lakebase_schema}
+          libraries:
+            - pypi:
+                package: databricks-sdk==0.142.0
+            - pypi:
+                package: psycopg[binary]==3.2.10
+
     telemetry_producer:
       name: Asset Reliability — continuous pump telemetry producer
       description: Polls Lakebase scenario commands and publishes eight-pump telemetry to Kafka.
       continuous:
         pause_status: UNPAUSED
       max_concurrent_runs: 1
+      run_as:
+        service_principal_name: ${var.app_service_principal_client_id}
       job_clusters:
         - job_cluster_key: producer_cluster
           new_cluster:
+            policy_id: ${resources.cluster_policies.asset_reliability_workloads.id}
             spark_version: 17.3.x-scala2.13
             node_type_id: i3.xlarge
             num_workers: 0
@@ -135,9 +277,12 @@ resources:
       continuous:
         pause_status: UNPAUSED
       max_concurrent_runs: 1
+      run_as:
+        service_principal_name: ${var.app_service_principal_client_id}
       job_clusters:
         - job_cluster_key: rtm_cluster
           new_cluster:
+            policy_id: ${resources.cluster_policies.asset_reliability_workloads.id}
             spark_version: 19.x-scala2.13
             node_type_id: i3.xlarge
             num_workers: 1
@@ -165,17 +310,82 @@ resources:
               lakebase_database: databricks_postgres
               lakebase_table: ${var.lakebase_schema}.telemetry_events
               starting_offsets: latest
-              trigger_interval: 5 minutes
+              # Demo-specific RTM epoch: the native Lakebase sink becomes visible at epoch
+              # boundaries in this workspace, so ten seconds keeps the live UI responsive.
+              trigger_interval: 10 seconds
               diagnostic_seconds: "0"
+
+    governed_telemetry_history_continuous:
+      name: Asset Reliability — continuous governed telemetry history
+      description: Keeps the governed Kafka-to-Unity-Catalog pipeline continuously active.
+      continuous:
+        pause_status: UNPAUSED
+      max_concurrent_runs: 1
+      run_as:
+        service_principal_name: ${var.app_service_principal_client_id}
+      tasks:
+        - task_key: run_governed_telemetry_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.governed_telemetry_history.id}
+            full_refresh: false
+
+  pipelines:
+    governed_telemetry_history:
+      name: Asset Reliability — governed telemetry history
+      run_as:
+        service_principal_name: ${var.app_service_principal_client_id}
+      catalog: ${var.catalog}
+      schema: ${var.schema}
+      development: false
+      edition: ADVANCED
+      channel: CURRENT
+      serverless: false
+      photon: true
+      cascade_on_destroy: false
+      libraries:
+        - notebook:
+            path: ./src/pipelines/governed_telemetry_history.sql
+      configuration:
+        kafka_bootstrap: ${var.kafka_bootstrap}
+        kafka_topic: ${var.kafka_topic}
+        kafka_starting_offsets: latest
+      clusters:
+        - label: default
+          policy_id: ${resources.cluster_policies.asset_reliability_workloads.id}
+          node_type_id: ${var.telemetry_pipeline_node_type}
+          num_workers: 1
+          aws_attributes:
+            availability: ON_DEMAND
+          custom_tags:
+            Workload: asset-reliability-governed-history
+      permissions:
+        - level: CAN_VIEW
+          group_name: ${var.app_access_group}
+        - level: CAN_RUN
+          service_principal_name: ${var.app_service_principal_client_id}
+
+  genie_spaces:
+    fleet_telemetry_analyst:
+      title: Asset Reliability — Fleet Telemetry Analyst
+      description: Natural-language analysis of continuous governed pump telemetry history.
+      warehouse_id: ${var.warehouse_id}
+      parent_path: ${var.genie_parent_path}
+      file_path: ./genie/fleet_telemetry_analyst.geniespace.json
+      permissions:
+        - level: CAN_RUN
+          group_name: ${var.app_access_group}
 
   apps:
     command_center:
       name: asset-reliability-center
       description: Autonomous and governed asset reliability command center
-      source_code_path: .
+      # Snapshot only the generated runtime artifact. The bundle root also contains the managed
+      # Genie workspace node, which is not a supported Databricks Apps snapshot node type.
+      source_code_path: ./.artifacts/app
       forward_user_access_token: true
       user_api_scopes:
         - ai-gateway
+        - genie
       resources:
         - name: lakebase
           postgres:
@@ -186,14 +396,15 @@ resources:
           sql_warehouse:
             id: ${var.warehouse_id}
             permission: CAN_USE
-        - name: primary-model
+        - name: model
           serving_endpoint:
-            name: ${var.primary_model}
+            name: ${var.model}
             permission: CAN_QUERY
-        - name: fast-model
-          serving_endpoint:
-            name: ${var.fast_model}
-            permission: CAN_QUERY
+        - name: fleet-telemetry-genie
+          genie_space:
+            name: fleet-telemetry-genie
+            space_id: ${resources.genie_spaces.fleet_telemetry_analyst.id}
+            permission: CAN_RUN
 
 targets:
   dev:

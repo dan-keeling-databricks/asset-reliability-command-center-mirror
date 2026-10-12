@@ -9,6 +9,8 @@ is tracked explicitly in the technical-debt register.
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -18,6 +20,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from backend.genie_router import create_genie_router
+from backend.identity import is_expected_service_principal
 from backend.lakebase_repository import LakebaseCommandCenterRepository, lakebase_conninfo
 from backend.mcp import AssetReliabilityMCP
 from backend.models import (
@@ -36,6 +40,8 @@ from backend.runtime import (
     initial_snapshot,
 )
 from backend.settings import Settings, get_settings
+
+BUILD_INFO_PATH = Path(__file__).resolve().parents[1] / ".build-info.json"
 
 
 def create_app(
@@ -91,6 +97,19 @@ def create_app(
         allow_headers=["*"],
     )
 
+    # The bundle injects the managed Genie space ID only in deployed mode. Keeping the
+    # integration conditional preserves the dependency-free local simulator while ensuring
+    # every deployed Genie API call uses the request's forwarded OBO token.
+    genie_space_id = os.getenv("DATABRICKS_GENIE_SPACE_ID")
+    if genie_space_id and settings.databricks_host:
+        app.include_router(
+            create_genie_router(
+                space_id=genie_space_id,
+                host=settings.databricks_host,
+                source_label=os.getenv("GENIE_SOURCE_LABEL"),
+            )
+        )
+
     def app_user(email: str | None, name: str | None) -> AppUser:
         if not email:
             if settings.app_adapter != "local":
@@ -126,7 +145,35 @@ def create_app(
 
     @app.get("/api/health")
     async def health() -> dict[str, str]:
-        return {"status": "ok", "adapter": settings.app_adapter}
+        if settings.app_adapter == "local":
+            return {"status": "ok", "adapter": settings.app_adapter}
+        try:
+            snapshot = await repository.snapshot()
+        except Exception:  # A health check must report Lakebase failure rather than raise 500.
+            return {
+                "status": "offline",
+                "adapter": settings.app_adapter,
+                "detail": "Lakebase unavailable",
+            }
+        return {
+            "status": "ok" if snapshot.platform.connection == "connected" else "degraded",
+            "adapter": settings.app_adapter,
+            "detail": snapshot.platform.source_label,
+        }
+
+    @app.get("/api/build-info")
+    async def build_info() -> dict[str, str]:
+        """Expose the immutable source revision injected by the checked deploy entry point."""
+
+        environment_commit = os.getenv("APP_BUILD_COMMIT")
+        if environment_commit:
+            return {"git_commit": environment_commit}
+        try:
+            payload = json.loads(BUILD_INFO_PATH.read_text(encoding="utf-8"))
+            file_commit = str(payload.get("git_commit") or "").strip()
+        except (OSError, ValueError, AttributeError):
+            file_commit = ""
+        return {"git_commit": file_commit or "unknown"}
 
     @app.get("/api/dashboard")
     async def dashboard(
@@ -325,10 +372,16 @@ def create_app(
     async def mcp(request: Request) -> Response:
         """Expose the source MCP protocol consumed by the configured Gateway connection.
 
-        The route currently relies on the Databricks App boundary for caller authentication.
-        Restricting it to the connection principal is tracked as governance debt because App
-        users must not be able to bypass Gateway policy by calling the source directly.
+        The Apps proxy authenticates the bearer token before injecting forwarded identity.
+        Only the App service principal configured on the Gateway HTTP connection may reach the
+        source. Human OBO credentials remain valid solely for the App-to-Gateway hop.
         """
+
+        expected_principal = os.getenv("MCP_SOURCE_PRINCIPAL") or os.getenv(
+            "DATABRICKS_CLIENT_ID"
+        )
+        if not is_expected_service_principal(request.headers, expected_principal):
+            raise HTTPException(status_code=403, detail="Gateway source principal required")
 
         payload = await request.json()
         if not isinstance(payload, dict):

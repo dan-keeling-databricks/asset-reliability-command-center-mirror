@@ -7,7 +7,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.lakebase_repository import LakebaseCommandCenterRepository
+from backend.lakebase_repository import RTM_FRESHNESS_SECONDS, LakebaseCommandCenterRepository
+
+
+def test_rtm_freshness_window_covers_the_demo_epoch() -> None:
+    assert RTM_FRESHNESS_SECONDS == 15
 
 
 def test_schema_persists_versioned_operator_and_handover_audit() -> None:
@@ -18,6 +22,40 @@ def test_schema_persists_versioned_operator_and_handover_audit() -> None:
     assert "CREATE TABLE IF NOT EXISTS asset_reliability.shift_operator_audit" in schema
     assert "previous_version BIGINT NOT NULL" in schema
     assert "new_version BIGINT NOT NULL" in schema
+
+
+def test_schema_persists_command_leases_and_immutable_governance_receipts() -> None:
+    schema = (Path(__file__).resolve().parents[1] / "sql" / "lakebase_schema.sql").read_text()
+
+    assert "lease_expires_at TIMESTAMPTZ" in schema
+    assert "claim_version BIGINT NOT NULL DEFAULT 0" in schema
+    assert "attempt_count INTEGER NOT NULL DEFAULT 0" in schema
+    assert "CREATE TABLE IF NOT EXISTS asset_reliability.governance_receipts" in schema
+    assert "request_sha256 TEXT NOT NULL" in schema
+    assert "governance_receipts_are_immutable" in schema
+
+
+def test_schema_repairs_legacy_leases_and_adds_versioned_approval_claims() -> None:
+    schema = (Path(__file__).resolve().parents[1] / "sql" / "lakebase_schema.sql").read_text()
+
+    assert "status = 'claimed' AND lease_expires_at IS NULL" in schema
+    assert "approval_claim_id UUID" in schema
+    assert "approval_claim_version BIGINT NOT NULL DEFAULT 0" in schema
+    assert "agent_runs_approval_replay_state_check" in schema
+    assert "VALIDATE CONSTRAINT agent_runs_approval_replay_state_check" in schema
+
+
+def test_runtime_mutations_are_fenced_by_active_scenario_and_approval_claim() -> None:
+    source = (
+        Path(__file__).resolve().parents[1] / "backend" / "lakebase_repository.py"
+    ).read_text()
+
+    assert "scenario.status = 'active'" in source
+    assert "run.approval_claim_id = %s::uuid" in source
+    assert "run.approval_claim_version = %s" in source
+    assert "run.approval_replay_state = 'claimed'" in source
+    assert "Governed work order rejected because its scenario or " in source
+    assert '"approval claim is stale"' in source
 
 
 def wait_repository(*, revision: int = 0, coalesce_seconds: float = 0.01):
@@ -152,6 +190,28 @@ def test_threshold_evaluation_is_scoped_to_identity_scenario() -> None:
 
     assert "SCENARIO.SCENARIO_ID = %S::UUID" in query
     assert "SCENARIO.STATUS = 'ACTIVE'" in query
+
+
+def test_sequence_allocation_locks_parent_rows() -> None:
+    source = (
+        Path(__file__).resolve().parents[1] / "backend" / "lakebase_repository.py"
+    ).read_text()
+
+    assert "SELECT run.run_id FROM {} run" in source
+    assert "FOR UPDATE OF run" in source
+    assert "SELECT incident.incident_id FROM {} incident" in source
+    assert "FOR UPDATE OF incident" in source
+
+
+def test_producer_commands_use_versioned_recoverable_leases() -> None:
+    source = (
+        Path(__file__).resolve().parents[1] / "src" / "producer" / "pump_telemetry_producer.py"
+    ).read_text()
+
+    assert "lease_expires_at < now()" in source
+    assert "attempt_count < %s" in source
+    assert "claimed_by = %s AND claim_version = %s" in source
+    assert "Lost command lease before completion" in source
 
 
 class FakeResult:

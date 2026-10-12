@@ -11,6 +11,15 @@
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ## Runtime dependencies
+# MAGIC
+# MAGIC The query uses only runtime-provided PySpark APIs. JSON is used to emit structured progress
+# MAGIC records, regular expressions validate deploy-time identifiers before Spark starts, and the
+# MAGIC monotonic clock bounds diagnostic runs without depending on wall-clock changes.
+
+# COMMAND ----------
+
 """Standalone Spark Real-Time Mode ingestion from Kafka to Lakebase."""
 
 from __future__ import annotations
@@ -32,11 +41,13 @@ from pyspark.sql.types import (
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Runtime configuration and checkpoint
+# MAGIC ## Declare deployment parameters
 # MAGIC
-# MAGIC Widgets make the Unity Catalog namespace, broker, topic, Lakebase sink, starting offsets,
-# MAGIC and diagnostic lifetime deployable through the Asset Bundle. Identifier validation occurs
-# MAGIC before the streaming query starts. The checkpoint path is stable across job replacements.
+# MAGIC These widgets form the notebook's deployment contract. The Asset Bundle supplies
+# MAGIC environment-specific values, while defaults keep an interactive diagnostic run
+# MAGIC understandable. No secret credentials are embedded: Kafka is reachable through the
+# MAGIC workspace network and the Lakebase
+# MAGIC sink obtains its credential from the Databricks runtime.
 
 # COMMAND ----------
 
@@ -52,8 +63,23 @@ dbutils.widgets.text(
 dbutils.widgets.text("lakebase_database", "databricks_postgres")
 dbutils.widgets.text("lakebase_table", "asset_reliability.telemetry_events")
 dbutils.widgets.text("starting_offsets", "latest")
-dbutils.widgets.text("trigger_interval", "5 minutes")
+# The native Lakebase sink in the demo workspace publishes at RTM epoch boundaries. A short
+# epoch keeps presenter-triggered telemetry visible without changing the RTM execution mode.
+# Production workloads should benchmark a longer checkpoint cadence against their latency SLA.
+dbutils.widgets.text("trigger_interval", "10 seconds")
 dbutils.widgets.text("diagnostic_seconds", "0")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Read and validate configuration
+# MAGIC
+# MAGIC The notebook reads widgets exactly once so the active configuration cannot change mid-query.
+# MAGIC Unity Catalog and PostgreSQL identifiers are restricted to simple lowercase names before
+# MAGIC being interpolated into storage paths or sink options. The checkpoint is stable across
+# MAGIC continuous-job replacement and unique to this stream.
+
+# COMMAND ----------
 
 CATALOG = dbutils.widgets.get("catalog")
 SCHEMA = dbutils.widgets.get("schema")
@@ -123,9 +149,9 @@ spark.streams.addListener(ProgressLogger())
 # MAGIC %md
 # MAGIC ## Decode and validate the telemetry envelope
 # MAGIC
-# MAGIC Kafka metadata is retained alongside the business payload for traceability. Struct parsing
-# MAGIC enforces the expected shape, while the final filter prevents rows without core identity or
-# MAGIC event-time fields from reaching the operational store.
+# MAGIC An explicit schema prevents runtime inference from a continuously growing source. The schema
+# MAGIC is the contract shared with the synthetic producer; changes must remain compatible with the
+# MAGIC Lakebase table and the parallel governed Unity Catalog pipeline.
 
 # COMMAND ----------
 
@@ -145,6 +171,19 @@ message_schema = StructType(
     ]
 )
 
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Subscribe to the Kafka telemetry topic
+# MAGIC
+# MAGIC The source begins at the configured offsets and keeps Kafka partition, offset, and broker
+# MAGIC timestamp for traceability. `failOnDataLoss=false` is an intentional synthetic-demo
+# MAGIC tradeoff:
+# MAGIC a broker retention gap must not prevent the live demo from resuming. The governed Lakeflow
+# MAGIC pipeline provides separate quality and quarantine visibility for historical analysis.
+
+# COMMAND ----------
+
 raw = (
     spark.readStream.format("kafka")
     .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP)
@@ -154,6 +193,18 @@ raw = (
     .option("kafka.fetch.max.wait.ms", "50")
     .load()
 )
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Parse and select operationally valid events
+# MAGIC
+# MAGIC JSON decoding retains Kafka metadata alongside the business payload. Rows without an event,
+# MAGIC scenario, pump, or parseable event time are excluded from the operational store because they
+# MAGIC cannot be deduplicated or associated with live state. Measurement-range analysis belongs to
+# MAGIC the governed UC pipeline; this path applies only the invariants required by Lakebase.
+
+# COMMAND ----------
 
 telemetry = (
     raw.select(
@@ -175,11 +226,13 @@ telemetry = (
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Native Lakebase sink and lifecycle
+# MAGIC ## Start the native Lakebase sink
 # MAGIC
 # MAGIC The PostgreSQL sink uses update mode, a persistent checkpoint, small sink batches, and a
-# MAGIC Real-Time Mode trigger. Diagnostic runs stop after the requested interval and return recent
-# MAGIC progress as JSON; the continuous production job otherwise waits for termination.
+# MAGIC Real-Time Mode trigger. `event_id` is the Lakebase primary key, so replayed Kafka records
+# MAGIC are
+# MAGIC idempotent at the destination. The returned query handle is the sole lifecycle authority for
+# MAGIC both continuous production and bounded diagnostics.
 
 # COMMAND ----------
 
@@ -197,6 +250,19 @@ query = (
 )
 
 print(f"RTM query started: {query.id}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Run continuously or return bounded diagnostics
+# MAGIC
+# MAGIC Production sets `diagnostic_seconds` to zero and waits for termination so the Lakeflow Job
+# MAGIC can supervise failures and replacement runs. A positive diagnostic duration stops the query
+# MAGIC and returns recent structured progress, including latency and sink-row metrics, as notebook
+# MAGIC output
+# MAGIC suitable for text-based acceptance evidence.
+
+# COMMAND ----------
 
 if DIAGNOSTIC_SECONDS > 0:
     deadline = time.monotonic() + DIAGNOSTIC_SECONDS

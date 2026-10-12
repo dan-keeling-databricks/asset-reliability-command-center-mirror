@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import time
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlparse
@@ -12,6 +14,8 @@ from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors import NotFound
 from databricks.sdk.service.apps import AppAccessControlRequest, AppPermissionLevel
 from databricks.sdk.service.catalog import ConnectionType
+
+from backend.gateway import GatewayAsk, GovernedGatewayClient
 
 PROFILE = os.getenv("DATABRICKS_CONFIG_PROFILE", "fe_vm_rtm")
 CATALOG = "classic_stable_realtime_demos_catalog"
@@ -43,10 +47,7 @@ def ensure_source_app_permission(client: WorkspaceClient, app) -> bool:
     for entry in permissions.access_control_list or []:
         if entry.service_principal_name != app.service_principal_client_id:
             continue
-        levels = {
-            permission.permission_level
-            for permission in entry.all_permissions or []
-        }
+        levels = {permission.permission_level for permission in entry.all_permissions or []}
         if AppPermissionLevel.CAN_USE in levels or AppPermissionLevel.CAN_MANAGE in levels:
             return False
 
@@ -73,9 +74,7 @@ def deploy_skill(client: WorkspaceClient) -> dict[str, object]:
             "POST",
             "/api/2.1/unity-catalog/skills",
             query={"parent": PARENT, "skill_id": SKILL_ID},
-            body={
-                "comment": "Evidence-led response procedure for autonomous asset anomalies"
-            },
+            body={"comment": "Evidence-led response procedure for autonomous asset anomalies"},
         )
         created = True
 
@@ -100,59 +99,133 @@ def deploy_skill(client: WorkspaceClient) -> dict[str, object]:
     return {"created": created, "uploaded": uploaded, "name": finalized.get("name")}
 
 
-def ensure_connection(client: WorkspaceClient, app) -> tuple[object, bool]:
-    """Create the App-backed MCP source connection when absent.
+def _connection_options(client: WorkspaceClient, app, client_secret: str) -> dict[str, str]:
+    parsed = urlparse(app.url)
+    return {
+        "host": f"{parsed.scheme}://{parsed.netloc}",
+        "port": "443",
+        "base_path": "/mcp",
+        "client_id": app.service_principal_client_id,
+        "client_secret": client_secret,
+        "token_endpoint": f"{client.config.host}/oidc/v1/token",
+        "oauth_scope": "all-apis",
+        "is_mcp_connection": "true",
+    }
 
-    Existing connection drift is not currently reconciled; see the technical-debt register.
-    """
+
+def _connection_drift(connection, desired: dict[str, str]) -> bool:
+    """Compare only non-secret options because GET redacts the OAuth client secret."""
+
+    current = connection.options or {}
+    return any(
+        current.get(key) != value for key, value in desired.items() if key != "client_secret"
+    )
+
+
+def ensure_connection(client: WorkspaceClient, app) -> tuple[object, str]:
+    """Create or reconcile the App-backed MCP source connection."""
 
     try:
-        return client.connections.get(CONNECTION_FQN), False
+        connection = client.connections.get(CONNECTION_FQN)
     except NotFound:
         # The generated secret is passed directly to the connection API and is never logged or
         # persisted in the source tree.
         secret = client.service_principal_secrets_proxy.create(
             str(app.service_principal_id), lifetime="31536000s"
         )
-        parsed = urlparse(app.url)
         try:
             connection = client.connections.create(
                 name=CONNECTION_ID,
                 connection_type=ConnectionType.HTTP,
                 comment="App-hosted maintenance MCP tools for Asset Reliability",
                 read_only=False,
-                options={
-                    "host": f"{parsed.scheme}://{parsed.netloc}",
-                    "port": "443",
-                    "base_path": "/mcp",
-                    "client_id": app.service_principal_client_id,
-                    "client_secret": secret.secret,
-                    "token_endpoint": f"{client.config.host}/oidc/v1/token",
-                    "oauth_scope": "all-apis",
-                    "is_mcp_connection": "true",
-                },
+                options=_connection_options(client, app, secret.secret),
             )
         except Exception:
             # Avoid leaving an unreferenced App-SP credential if connection creation fails.
-            client.service_principal_secrets_proxy.delete(
-                str(app.service_principal_id), secret.id
-            )
+            client.service_principal_secrets_proxy.delete(str(app.service_principal_id), secret.id)
             raise
-        return connection, True
+        return connection, "created"
+
+    desired_without_secret = _connection_options(client, app, "<redacted>")
+    if not _connection_drift(connection, desired_without_secret):
+        return connection, "unchanged"
+    secret = client.service_principal_secrets_proxy.create(
+        str(app.service_principal_id), lifetime="31536000s"
+    )
+    try:
+        connection = client.connections.update(
+            CONNECTION_FQN,
+            _connection_options(client, app, secret.secret),
+        )
+    except Exception:
+        client.service_principal_secrets_proxy.delete(str(app.service_principal_id), secret.id)
+        raise
+    return connection, "updated"
 
 
-def ensure_service(client: WorkspaceClient, function_id: str) -> tuple[dict, bool]:
-    """Create the governed service and ASK policy when absent.
+def _service_config(function_id: str) -> dict[str, object]:
+    return {
+        "source_connection": {"name": f"connections/{CONNECTION_FQN}"},
+        "include_tool_selectors": TOOLS,
+        "service_policies": [
+            {
+                "name": "submit_work_order_requires_approval",
+                "policy_type": "POLICY_TYPE_CUSTOM",
+                "handler": f"functions/{POLICY_FQN}",
+                "function_id": function_id,
+                "rank": 1,
+            }
+        ],
+    }
 
-    This helper is intentionally create-only today. A convergent update and post-deploy policy
-    probe are tracked as high-priority governance debt.
-    """
+
+def _service_config_matches(actual: dict[str, object], desired: dict[str, object]) -> bool:
+    """Compare governed inputs while ignoring read-only fields expanded by Gateway GET."""
+
+    actual_source = actual.get("source_connection") or {}
+    desired_source = desired.get("source_connection") or {}
+    if not isinstance(actual_source, dict) or not isinstance(desired_source, dict):
+        return False
+    if actual_source.get("name") != desired_source.get("name"):
+        return False
+    if actual.get("include_tool_selectors") != desired.get("include_tool_selectors"):
+        return False
+
+    governed_policy_fields = (
+        "name",
+        "policy_type",
+        "handler",
+        "function_id",
+        "rank",
+    )
+
+    def project_policies(config: dict[str, object]) -> list[dict[str, object]]:
+        policies = config.get("service_policies") or []
+        if not isinstance(policies, list):
+            return []
+        return [
+            {field: policy.get(field) for field in governed_policy_fields}
+            for policy in policies
+            if isinstance(policy, dict)
+        ]
+
+    return project_policies(actual) == project_policies(desired)
+
+
+def ensure_service(
+    client: WorkspaceClient,
+    function_id: str,
+    *,
+    max_attempts: int = 6,
+    retry_delay_seconds: float = 0.5,
+) -> tuple[dict, str]:
+    """Create or reconcile the service, verifying PATCH propagation with fresh GETs."""
+
+    desired = _service_config(function_id)
 
     try:
-        service = client.api_client.do(
-            "GET", f"/api/2.1/unity-catalog/mcp-services/{SERVICE_FQN}"
-        )
-        return service, False
+        service = client.api_client.do("GET", f"/api/2.1/unity-catalog/mcp-services/{SERVICE_FQN}")
     except NotFound:
         service = client.api_client.do(
             "POST",
@@ -160,22 +233,90 @@ def ensure_service(client: WorkspaceClient, function_id: str) -> tuple[dict, boo
             query={"parent": PARENT, "mcp_service_id": SERVICE_ID},
             body={
                 "comment": "Governed tools for the Asset Reliability Command Center",
-                "config": {
-                    "source_connection": {"name": f"connections/{CONNECTION_FQN}"},
-                    "include_tool_selectors": TOOLS,
-                    "service_policies": [
-                        {
-                            "name": "submit_work_order_requires_approval",
-                            "policy_type": "POLICY_TYPE_CUSTOM",
-                            "handler": f"functions/{POLICY_FQN}",
-                            "function_id": function_id,
-                            "rank": 1,
-                        }
-                    ],
-                },
+                "config": desired,
             },
         )
-        return service, True
+        return service, "created"
+    if _service_config_matches(service.get("config") or {}, desired):
+        return service, "unchanged"
+
+    for attempt in range(max_attempts):
+        client.api_client.do(
+            "PATCH",
+            f"/api/2.1/unity-catalog/mcp-services/{SERVICE_FQN}",
+            query={"update_mask": "config"},
+            body={"config": desired},
+        )
+        service = client.api_client.do("GET", f"/api/2.1/unity-catalog/mcp-services/{SERVICE_FQN}")
+        if _service_config_matches(service.get("config") or {}, desired):
+            return service, "updated"
+        if attempt + 1 < max_attempts:
+            time.sleep(retry_delay_seconds * (2**attempt))
+    raise RuntimeError("Unity Gateway service did not converge to the declared configuration")
+
+
+async def probe_submit_policy(
+    client: WorkspaceClient,
+    *,
+    max_attempts: int = 6,
+    retry_delay_seconds: float = 0.5,
+) -> dict[str, object]:
+    """Prove discovery, source authentication, and native ASK after propagation.
+
+    The result is intentionally sanitized: neither the OBO token, source headers, nor raw
+    telemetry are returned or logged.
+    """
+
+    authorization = client.config.authenticate().get("Authorization", "")
+    token = authorization.removeprefix("Bearer ").strip()
+    if not token:
+        raise RuntimeError("Unable to obtain an OAuth token for the policy probe")
+    gateway_url = f"{client.config.host}/ai-gateway/mcp-services/{SERVICE_FQN}"
+    gateway = GovernedGatewayClient(gateway_url)
+    try:
+        for attempt in range(max_attempts):
+            try:
+                tools = await gateway.list_tools(token)
+                discovered = [str(tool.get("name", "")) for tool in tools]
+                if len(discovered) != len(TOOLS) or set(discovered) != set(TOOLS):
+                    raise RuntimeError(
+                        "Gateway tool discovery did not match the exact declared tool set"
+                    )
+
+                telemetry = await gateway.call_tool(
+                    "get_asset_telemetry", {"asset_id": "P-204"}, token
+                )
+                result = telemetry.get("result", {})
+                if result.get("isError") is True or telemetry.get("error"):
+                    raise RuntimeError("Benign source authentication probe failed")
+
+                try:
+                    await gateway.call_tool(
+                        "submit_work_order",
+                        {
+                            "asset_id": "P-204",
+                            "action": "Policy deployment probe; must not execute",
+                            "incident_id": "00000000-0000-0000-0000-000000000000",
+                            "planned_window": "never",
+                        },
+                        token,
+                    )
+                except GatewayAsk as ask:
+                    return {
+                        "tools": discovered,
+                        "source_authentication": "verified",
+                        "decision": "ASK",
+                        "elicitation_id": ask.elicitation.elicitation_id,
+                        "execution": "not executed",
+                    }
+                raise RuntimeError("submit_work_order policy probe did not return native ASK")
+            except Exception:
+                if attempt + 1 >= max_attempts:
+                    raise
+                await asyncio.sleep(retry_delay_seconds * (2**attempt))
+    finally:
+        await gateway.close()
+    raise RuntimeError("Unity Gateway deployment probe exhausted without success")
 
 
 def main() -> None:
@@ -189,8 +330,9 @@ def main() -> None:
     function = client.functions.get(POLICY_FQN)
     app_permission_created = ensure_source_app_permission(client, app)
     skill = deploy_skill(client)
-    connection, connection_created = ensure_connection(client, app)
-    service, service_created = ensure_service(client, function.function_id)
+    connection, connection_status = ensure_connection(client, app)
+    service, service_status = ensure_service(client, function.function_id)
+    policy_probe = asyncio.run(probe_submit_policy(client))
 
     print(
         json.dumps(
@@ -198,12 +340,13 @@ def main() -> None:
                 "skill": skill,
                 "source_app_permission_created": app_permission_created,
                 "connection": connection.full_name,
-                "connection_created": connection_created,
+                "connection_status": connection_status,
                 "service": service.get("name"),
-                "service_created": service_created,
+                "service_status": service_status,
                 "gateway_url": f"{client.config.host}/ai-gateway/mcp-services/{SERVICE_FQN}",
                 "policy": POLICY_FQN,
                 "tools": TOOLS,
+                "policy_probe": policy_probe,
             },
             indent=2,
         )

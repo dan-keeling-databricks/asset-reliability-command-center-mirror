@@ -8,6 +8,7 @@ stops immediately when Gateway returns ``ASK``. Approval replay uses the exact p
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 from collections.abc import Coroutine
@@ -107,15 +108,23 @@ class ProductionCommandCenterRuntime:
         return True
 
     async def restart(self) -> str:
-        """Create a fresh scenario and clear process-local operator identity.
+        """Quiesce the old scenario before atomically creating its replacement."""
 
-        Unlike operator handover, this path does not yet cancel old incident tasks. That known
-        lifecycle gap is recorded as high-priority technical debt rather than hidden here.
-        """
+        async with self._operator_change_lock:
+            await self._cancel_active_runs()
+            self.identities.clear()
+            self._identity_scenario_id = None
+            return await self.repository.restart_scenario(self._last_subject)
 
-        self.identities.clear()
-        self._identity_scenario_id = None
-        return await self.repository.restart_scenario(self._last_subject)
+    async def _cancel_active_runs(self) -> None:
+        """Cancel and await every incident task so it cannot outlive its scenario."""
+
+        tasks = list(self._run_tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._run_tasks.clear()
 
     async def trigger_excursion(self) -> str:
         snapshot = await self.repository.snapshot()
@@ -134,23 +143,28 @@ class ProductionCommandCenterRuntime:
             scenario_id = await self.repository.handover_operator(
                 expected_version, new_operator_email, initiated_by
             )
-            for task in list(self._run_tasks):
-                task.cancel()
-            if self._run_tasks:
-                await asyncio.gather(*self._run_tasks, return_exceptions=True)
-            self._run_tasks.clear()
+            await self._cancel_active_runs()
             self.identities.clear()
             self._identity_scenario_id = None
             self.bind_operator_identity(scenario_id, new_operator_email)
             return scenario_id
 
     async def approve(self, incident_id: str) -> None:
-        incident = await self.repository.incident(incident_id)
-        if not incident or not incident.pending_approval:
-            raise ValueError("Incident is not waiting for Gateway approval")
-        completed = await self._retry_pending(incident_id, incident.pending_approval)
-        if not completed:
-            raise ValueError("Unity Gateway approval is still pending")
+        # Approval replay is not an agent background task, so it shares the lifecycle lock
+        # with restart/handover to prevent an in-flight write crossing a scenario boundary.
+        async with self._operator_change_lock:
+            incident = await self.repository.incident(incident_id)
+            if not incident or not incident.pending_approval:
+                raise ValueError("Incident is not waiting for Gateway approval")
+            identity = self.identities.get(incident.scenario_id)
+            approving_subject = (
+                identity.subject if identity and identity.subject else self._last_subject
+            ) or "authenticated-operator"
+            completed = await self._retry_pending(
+                incident_id, incident.pending_approval, approving_subject
+            )
+            if not completed:
+                raise ValueError("Unity Gateway approval is still pending")
 
     async def follow_up(self, incident_id: str, message: str) -> None:
         incident = await self.repository.incident(incident_id)
@@ -159,7 +173,7 @@ class ProductionCommandCenterRuntime:
         await self.repository.append_conversation(incident_id, "operator", message)
         started_at = utc_now()
         result = await self.model.chat(
-            self.settings.primary_model_endpoint,
+            self.settings.model_endpoint,
             [
                 {
                     "role": "system",
@@ -178,7 +192,7 @@ class ProductionCommandCenterRuntime:
             RuntimeActivity(
                 category="model_call",
                 title="Model execution",
-                actor=self.settings.primary_model_endpoint,
+                actor=self.settings.model_endpoint,
                 status="complete",
                 status_label="Completed",
                 summary=result.content,
@@ -199,6 +213,9 @@ class ProductionCommandCenterRuntime:
         while True:
             await asyncio.sleep(self.settings.alert_evaluator_interval_seconds)
             try:
+                await self.repository.record_component_heartbeat(
+                    "alert-evaluator", {"scenario_id": self._identity_scenario_id}
+                )
                 scenario_id = self._identity_scenario_id
                 if not scenario_id or not self.identities.get(scenario_id):
                     continue
@@ -315,7 +332,7 @@ class ProductionCommandCenterRuntime:
                     ),
                 },
             ]
-            endpoint = self.settings.fast_model_endpoint
+            endpoint = self.settings.model_endpoint
             last_risk: dict[str, Any] | None = None
             action_continuation_requested = False
             while True:
@@ -368,9 +385,7 @@ class ProductionCommandCenterRuntime:
                     summary = canonical_rationale
                 canonical_terminal = (
                     _canonical_terminal_response(summary)
-                    if not tool_calls
-                    and last_risk
-                    and last_risk.get("risk_band") != "high"
+                    if not tool_calls and last_risk and last_risk.get("risk_band") != "high"
                     else None
                 )
                 await self.repository.append_activity(
@@ -480,8 +495,6 @@ class ProductionCommandCenterRuntime:
                     )
                     if tool_name == "assess_failure_risk":
                         last_risk = data
-                        if data.get("risk_band") == "high":
-                            endpoint = self.settings.primary_model_endpoint
                     if tool_name == "submit_work_order":
                         await self._complete_governed_action(
                             incident_id,
@@ -560,13 +573,10 @@ class ProductionCommandCenterRuntime:
             + output_tokens * self.settings.model_output_cost_per_million
         ) / 1_000_000
 
-    async def _retry_pending(self, incident_id: str, pending: PendingApproval) -> bool:
-        """Replay the exact paused request after external authorization.
-
-        The current completion path assumes the only policy-paused tool is
-        ``submit_work_order``. Generalizing policy to more tools requires tool-specific and
-        single-flight resume handling, tracked in the technical-debt register.
-        """
+    async def _retry_pending(
+        self, incident_id: str, pending: PendingApproval, approving_subject: str
+    ) -> bool:
+        """Single-flight replay of the exact paused request after Gateway authorization."""
 
         incident = await self.repository.incident(incident_id)
         if not incident or incident.status != "waiting":
@@ -574,17 +584,53 @@ class ProductionCommandCenterRuntime:
         identity = self.identities.get(incident.scenario_id)
         if not identity:
             return False
+        claimed = await self.repository.claim_pending_approval(incident_id, approving_subject)
+        if not claimed:
+            latest = await self.repository.incident(incident_id)
+            return bool(latest and latest.status == "completed")
+        pending = claimed.pending
         try:
             replay_started_at = utc_now()
             result = await self.gateway.replay(pending.serialized_request, identity.token)
         except GatewayAsk:
+            await self.repository.release_pending_approval(
+                incident_id, claimed.claim_id, claimed.version
+            )
             return False
+        except Exception:
+            await self.repository.release_pending_approval(
+                incident_id, claimed.claim_id, claimed.version
+            )
+            raise
         replay_completed_at = utc_now()
+        data = _structured(result)
+        work_order_id = str(data.get("work_order_id", "Work order"))
+        receipt = {
+            "elicitation_id": pending.elicitation_id,
+            "request_sha256": hashlib.sha256(
+                pending.serialized_request.encode("utf-8")
+            ).hexdigest(),
+            "approving_subject": approving_subject,
+            "decision": "ALLOW",
+            "requested_at": pending.created_at.isoformat(),
+            "decided_at": replay_started_at.isoformat(),
+            "completed_at": replay_completed_at.isoformat(),
+        }
+        finalized = await self.repository.record_governance_receipt(
+            incident_id,
+            work_order_id,
+            receipt,
+            claimed.claim_id,
+            claimed.version,
+        )
+        if not finalized:
+            return False
         await self._complete_governed_action(
             incident_id,
             result,
             started_at=replay_started_at,
             completed_at=replay_completed_at,
+            persist_completion=False,
         )
         await self._generate_post_approval_response(incident_id, incident, result)
         return True
@@ -596,6 +642,7 @@ class ProductionCommandCenterRuntime:
         *,
         started_at: datetime,
         completed_at: datetime,
+        persist_completion: bool = True,
     ) -> None:
         data = _structured(result)
         work_order_id = data.get("work_order_id", "Work order")
@@ -617,7 +664,8 @@ class ProductionCommandCenterRuntime:
                 completed_at=completed_at,
             ),
         )
-        await self.repository.complete_incident(incident_id, str(work_order_id))
+        if persist_completion:
+            await self.repository.complete_incident(incident_id, str(work_order_id))
 
     async def _generate_post_approval_response(
         self, incident_id: str, incident: IncidentDetail, result: dict[str, Any]
@@ -641,7 +689,7 @@ class ProductionCommandCenterRuntime:
             },
         ]
         try:
-            turn = await self.model.turn(self.settings.primary_model_endpoint, messages)
+            turn = await self.model.turn(self.settings.model_endpoint, messages)
         except Exception:  # The executed governed write must still receive a conclusion.
             await self._append_fallback_response(
                 incident_id, _fallback_terminal_response(incident, result)
@@ -655,7 +703,7 @@ class ProductionCommandCenterRuntime:
             RuntimeActivity(
                 category="model_call",
                 title="Model execution",
-                actor=self.settings.primary_model_endpoint,
+                actor=self.settings.model_endpoint,
                 status="complete",
                 status_label="Completed",
                 summary=canonical or content,
@@ -675,7 +723,7 @@ class ProductionCommandCenterRuntime:
         try:
             canonical or await self._ensure_terminal_response(
                 incident_id,
-                self.settings.primary_model_endpoint,
+                self.settings.model_endpoint,
                 [*messages, turn.message],
                 content,
             )
@@ -883,11 +931,7 @@ def _canonical_terminal_response(content: str) -> str | None:
     values: list[str] = []
     for index, label in enumerate(labels):
         next_label = labels[index + 1] if index + 1 < len(labels) else None
-        boundary = (
-            rf"(?=\s*(?:[-*]\s*)?\*{{0,2}}{next_label}:\*{{0,2}})"
-            if next_label
-            else r"$"
-        )
+        boundary = rf"(?=\s*(?:[-*]\s*)?\*{{0,2}}{next_label}:\*{{0,2}})" if next_label else r"$"
         match = re.search(
             rf"(?:[-*]\s*)?\*{{0,2}}{label}:\*{{0,2}}\s*(.*?){boundary}",
             cleaned,
@@ -899,6 +943,4 @@ def _canonical_terminal_response(content: str) -> str | None:
         if not value:
             return None
         values.append(value)
-    return "\n".join(
-        f"- **{label}:** {value}" for label, value in zip(labels, values, strict=True)
-    )
+    return "\n".join(f"- **{label}:** {value}" for label, value in zip(labels, values, strict=True))

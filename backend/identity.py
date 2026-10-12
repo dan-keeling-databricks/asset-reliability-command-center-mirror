@@ -8,7 +8,9 @@ Gateway action can resume.
 from __future__ import annotations
 
 import base64
+import hmac
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 
@@ -40,6 +42,39 @@ class OboIdentityRegistry:
 
     def clear(self) -> None:
         self._identities.clear()
+
+
+def is_expected_service_principal(
+    headers: Mapping[str, str], expected_principal: str | None
+) -> bool:
+    """Validate the trusted identity injected by the Databricks Apps proxy.
+
+    Unity Gateway reaches the source App with the OAuth client configured on the HTTP
+    connection. The Apps proxy authenticates that token and replaces the forwarded identity
+    headers before the request reaches FastAPI. We accept the client-id form used for service
+    principals and the forwarded-email/user forms retained by older proxy versions. A missing
+    expected principal fails closed in deployed mode.
+    """
+
+    if not expected_principal:
+        return False
+    expected = expected_principal.strip().lower()
+    forwarded_human = headers.get("x-forwarded-email")
+    if forwarded_human and not hmac.compare_digest(
+        forwarded_human.strip().lower(), expected
+    ):
+        return False
+    candidates = (
+        headers.get("x-forwarded-service-principal"),
+        headers.get("x-forwarded-client-id"),
+        forwarded_human,
+        headers.get("x-forwarded-user"),
+    )
+    return any(
+        candidate is not None
+        and hmac.compare_digest(candidate.strip().lower(), expected)
+        for candidate in candidates
+    )
 
 
 def _jwt_subject(token: str) -> str | None:

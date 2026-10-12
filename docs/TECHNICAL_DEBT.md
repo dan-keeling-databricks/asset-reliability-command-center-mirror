@@ -1,281 +1,183 @@
-# Technical debt register
+# Technical debt and accepted tradeoffs
 
-## Scope and method
+This register reflects the integrated validator-ready architecture. It distinguishes resolved
+risks from explicitly accepted demo choices and remaining maintainability work. A resolved item
+should not be reopened merely because the implementation differs from a hypothetical production
+platform; remaining claims must match current source and tests.
 
-This register reviews the application end to end at repository commit `a29eb56`: React UI,
-FastAPI composition, local and production runtimes, the agent loop, identity, MCP source,
-Unity Gateway transport and deployment, Lakebase schema/repository, Kafka producer, Spark
-Real-Time Mode ingestion, tests, dependencies, Asset Bundle, and deployment runbook.
+## Resolved in the validator-readiness work
 
-The review separates defects from intentional ten-minute-demo tradeoffs. Findings are ordered
-by remediation priority rather than implementation convenience.
+### Source MCP policy bypass
 
-Baseline on 2026-10-09:
+**Resolved.** `/mcp` now fails closed unless trusted Databricks proxy identity headers identify
+the App service principal configured for the Gateway source connection. Human App users cannot
+call the write-capable source directly. Positive and negative API tests cover the boundary.
 
-- Ruff passed.
-- 37 Python tests passed with two upstream deprecation warnings.
-- TypeScript checking and the Vite production build passed after `npm ci`.
-- Asset Bundle validation passed, with only absent-local-artifact warnings before the build.
-- `npm audit --omit=dev` reported one high-severity `source-map-js` advisory.
-- No frontend test runner, producer tests, RTM tests, real PostgreSQL integration tests, or
-  deployed-policy contract tests exist.
+### Scenario restart leakage
 
-After the documentation pass, the suite contains 56 passing tests; 19 of those enforce Python
-module docstrings and Markdown-before-code structure for notebook-source assets.
+**Resolved.** Restart uses the operator-change lock, archives active database runs, cancels and
+awaits in-memory agent tasks, clears scenario-bound identity, and only then creates the next
+scenario. Database predicates also reject delayed activity, conversation, completion, failure,
+and work-order writes from another replica after its scenario is archived.
 
-## P0 — governance and scenario isolation
+### Approval replay race and missing governance evidence
 
-### TD-001: App users can bypass Gateway policy at the source MCP route
+**Resolved.** Pending approval is claimed with a recoverable UUID/version-fenced single-flight
+lease. Release and finalization require the exact claim. Successful execution atomically records
+an immutable receipt and completed run containing elicitation ID, request hash, approving subject,
+decision, and timestamps; database uniqueness remains the final work-order idempotency guard.
 
-**Evidence:** `backend/main.py::mcp` forwards any valid JSON-RPC request directly to
-`AssetReliabilityMCP`; `backend/mcp.py::call_tool` can execute `submit_work_order`. The route
-does not verify that the caller is the MCP connection service principal.
+### Stranded producer commands
 
-**Impact:** a user with App access may call `/mcp` directly and avoid Unity Gateway's `ASK`
-policy. This undermines the central governance claim of the demo.
+**Resolved.** Producer claims carry expiry, owner/version, and attempt count. Expired claims are
+reclaimed or moved to a visible failed state after the bounded retry limit.
 
-**Remediation:** restrict the source route to the configured connection principal, or host
-write-capable tools behind a separately authenticated source. Add a negative test proving an
-ordinary App user cannot execute a source tool directly.
+### Timeline sequence race
 
-### TD-002: Clear/restart does not terminate old agent executions
+**Resolved.** Activity allocation locks the owning run and conversation allocation locks the
+owning incident before calculating the next sequence.
 
-**Evidence:** `ProductionCommandCenterRuntime.restart` clears identity state and archives the
-scenario through `restart_scenario`, but it does not cancel or await `_run_tasks`. Operator
-handover already performs this cancellation.
+### Governance configuration drift
 
-**Impact:** a task from an archived scenario can continue with a previously captured token and
-may reach a governed write after the presenter has cleared the demo.
+**Resolved.** Deployment compares and reconciles MCP connection routing, tool selectors, service
+policy, Skill files/finalization, and App source permission. A post-deployment probe requires exact
+tool discovery, a successful benign source read, and native `ASK` with no write execution.
 
-**Remediation:** serialize restart under `_operator_change_lock`; transactionally fail or cancel
-active runs and approvals; cancel and await their asyncio tasks; clear scenario-bound identity;
-then create and bind the fresh scenario. Add a restart-versus-agent race test.
+### Two-model design drift
 
-### TD-003: Maintenance prerequisites are prompt-enforced rather than server-enforced
+**Resolved.** Agent reasoning, tool choice, and final response use only
+`databricks-claude-sonnet-4-5`. Obsolete endpoint resources and routing settings were removed.
 
-**Evidence:** the model may call any discovered tool in any order. `submit_work_order` validates
-the asset but does not require a persisted high-risk assessment, prepared proposal, incident
-match, or proposal version. Existing runtime tests can submit immediately.
+### Untruthful operational health
 
-**Impact:** a model error can request an approved work order without durable evidence that the
-asset is high risk or that the proposal belongs to the current incident.
+**Resolved.** App readiness derives from Lakebase access, latest telemetry, producer heartbeat,
+RTM's durable ingestion effect, and evaluator heartbeat. Stale components produce a degraded
+state with an explicit label.
 
-**Remediation:** persist a versioned incident action proposal containing the assessment evidence;
-make submission consume that proposal transactionally; reject mismatched asset, incident,
-proposal version, or risk state independently of the prompt.
+### Silent invalid data in the governed analytical path
 
-### TD-004: Governance deployment does not reconcile existing resources
+**Resolved for the validator path.** The SQL Lakeflow pipeline preserves raw broker records,
+applies named Silver expectations, and writes invalid records with reasons to quarantine. The
+separate low-latency RTM path still filters operational envelopes and should gain equivalent
+drop metrics before production use.
 
-**Evidence:** `scripts/deploy_governance.py::ensure_connection` and `ensure_service` return
-existing objects unchanged. Tool selectors, source identity, and policy handler drift are not
-compared or updated.
+### Stale frontend deployments and unknown build identity
 
-**Impact:** deployment can report success while the active service omits the `ASK` policy or
-exposes a stale tool set.
+**Resolved.** `scripts/deploy.py` performs locked installs, the complete test/build gate, frontend
+freshness verification, clean-tree validation, and deterministic build-info generation before
+the App snapshot is deployed. It readiness-gates the producer, RTM, and governed-history
+continuous jobs, grants their service principal verified read access to the synced bundle source
+directory, and exposes the deployed commit through `/api/build-info`.
 
-**Remediation:** make deployment convergent: compare desired and effective configuration,
-update or safely recreate drifted objects, rotate stale credentials, and run a post-deploy probe
-that verifies `submit_work_order` returns native `ASK` before source execution.
+### Architecture and runbook drift
 
-## P1 — correctness, recovery, and design drift
+**Resolved.** README, demo narrative, architecture, deployment, task, debt, and evidence documents
+now describe the SQL pipeline, telemetry-only OBO Genie, single model, strengthened governance,
+existing group, and repository-first deployment path.
 
-### TD-005: Approved single-model design is not on `main`
+### Bundle root used as the App snapshot
 
-**Evidence:** `app.yaml`, `databricks.yml`, `backend/settings.py`, and
-`backend/production_runtime.py` still configure primary and fast endpoints and route high risk
-from GPT-5.1 to Claude Sonnet 4.5. The single-model implementation remains isolated on
-`feat/single_model_runtime`.
+**Resolved.** The bundle-managed Genie definition materializes as a special workspace node that
+Databricks Apps cannot import. Deployment now stages an allowlisted runtime tree under
+`.artifacts/app`, and the App snapshots only that directory. Tests prove that Genie definitions,
+job/pipeline source, development assets, and stale files do not enter the artifact.
 
-**Impact:** deployed behavior differs from the approved design and complicates the planned
-per-model workflow benchmark because a single evaluation run is not attributable to one model.
+## Accepted design decisions
 
-**Remediation:** rebase the single-model branch on current `main`, revalidate agent behavior,
-merge it, remove obsolete resource bindings/settings, and update architecture and demo docs.
+These decisions were explicitly reviewed and should not be “fixed” without revisiting the demo
+requirements.
 
-### TD-006: Approval replay is not single-flight or tool-generic
+### Model-directed business-tool sequence
 
-**Evidence:** `_retry_pending` replays without atomically claiming the pending request and always
-follows the work-order completion path. It does not validate `pending.tool_name`.
+The Skill guides evidence gathering and work-order preparation, but the MCP source does not impose
+a durable proposal state machine or require a persisted risk assessment before submission. Unity
+Gateway still authorizes the consequential action. This preserves a visibly agentic workflow for
+the prototype; production use should reconsider server-enforced business prerequisites.
 
-**Impact:** concurrent approval retries may replay a write more than once. Adding `ASK` to any
-other tool would falsely record work-order completion.
+### No fixed tool-call or turn cap
 
-**Remediation:** claim replay with a compare-and-set transition; validate tool and request ID;
-make completion handlers tool-specific; preserve idempotency at the source write; test double
-clicks and multiple App instances.
+The runtime does not impose a presentation-driven four-call limit or hard-code four business
+stages. The model chooses the required work, and every actual call is rendered. A production
+service would normally add generous wall-clock, token, cost, and loop safety budgets.
 
-### TD-007: Producer commands have no claim lease or stale-claim recovery
+### Two intentional Kafka consumers
 
-**Evidence:** the producer commits `status='claimed'` before applying a command. No lease expiry,
-owner-checked completion, or reclaim query exists.
+Operational RTM-to-Lakebase and governed Lakeflow-to-Unity-Catalog paths consume the same topic
+independently. No continuous cross-store reconciliation service is required for this demo.
 
-**Impact:** a producer crash after claim can permanently strand a restart or P-204 excursion.
+### Genie is telemetry-only
 
-**Remediation:** store lease expiry and attempt count, reclaim expired claims, require matching
-owner/version on completion, and expose failed or exhausted commands in health state.
+Genie reads the curated continuous telemetry view and has no scenario, restart, incident,
+approval, agent, or work-order context. Genie conversations are independent of command-center
+restarts.
 
-### TD-008: Activity and conversation sequence allocation can race
+### Process-local OBO credentials
 
-**Evidence:** `append_activity` and `append_conversation` allocate ordering with
-`MAX(sequence) + 1` under normal transactions.
+Forwarded user tokens remain only in App memory. An App restart during a pending approval requires
+a fresh authenticated request before replay. Persisting or distributing bearer tokens would be a
+worse security tradeoff for this prototype.
 
-**Impact:** simultaneous agent, approval, and follow-up writers can choose the same sequence and
-hit a uniqueness violation, leaving UI history incomplete.
+### Deterministic demo data and manual deployment
 
-**Remediation:** lock the owning run/incident row, maintain an atomic next-sequence counter, or
-retry unique conflicts. Add concurrent writer tests against PostgreSQL.
+The eight-pump fleet, transient timing, and one P-204 excursion per scenario are controlled demo
+fixtures. Deployment is manual because no CI/CD system is available, but the checked entry point
+makes the manual process reproducible.
 
-### TD-009: Work-order governance evidence is not durably recorded
+## Remaining debt
 
-**Evidence:** the source tool receives part and planned-window data, but `create_work_order`
-does not persist those fields. `submitted_by` defaults to `governed-agent` and
-`governance_receipt` defaults to an empty object.
+### TD-101: Core modules remain large
 
-**Impact:** Lakebase cannot answer who authorized which exact request, which Gateway elicitation
-was satisfied, or what part/window was approved.
+`lakebase_repository.py`, `production_runtime.py`, `runtime.py`, and `App.tsx` still combine
+multiple stable concerns. The broader decomposition was deliberately deferred to avoid regression
+risk during validator-readiness work.
 
-**Remediation:** persist operator subject, elicitation/request ID, Gateway decision, serialized
-request hash, part, planned window, and completion timestamps as an immutable receipt.
+**Future direction:** separate migration/health/query/command persistence, incident/approval/model
+services, and focused frontend hooks/components behind the current protocols and contract tests.
 
-### TD-010: Manual deployment can publish stale frontend assets
+### TD-102: Representative integration and frontend tests are incomplete
 
-**Evidence:** the bundle syncs `frontend/dist/**`, but deployment has no build hook or artifact
-freshness check. A deploy from a worktree whose source was merged after its last frontend build
-published the old card renderer during the MCP discovery feature.
+The suite now covers source authorization, approval/restart races, command leases, ordering,
+governance reconciliation, data-plane definitions, Genie API isolation, and deployment contracts.
+It still lacks disposable real-PostgreSQL transaction tests, Spark execution tests, and a
+Vitest/Testing Library accessibility suite.
 
-**Impact:** backend and frontend versions can diverge even though the Git commit and deployment
-command appear correct.
+### TD-103: Frontend dependency hygiene
 
-**Remediation:** provide one checked deployment script that runs `npm ci`, typecheck, build,
-tests, bundle validation, and an asset/source freshness assertion before `apps deploy`. Record the
-source commit in an App health/build-info endpoint.
+The reviewed `source-map-js` advisory is resolved in the lock file and `npm audit` currently
+reports no vulnerabilities. Several direct dependencies still use `latest`, and the frontend has
+no lint/test scripts. Pin supported ranges and add ESLint plus component tests without applying
+blind major upgrades.
 
-### TD-011: Operational status can remain healthy during pipeline failure
+### TD-104: Incident request cancellation and modal accessibility
 
-**Evidence:** the platform connection model defaults to connected; snapshots do not derive
-readiness from telemetry age or component heartbeats; listener/evaluator retry loops suppress
-errors without exporting structured health.
+Incident detail refresh can still return out of order, clickable pump cards are not fully
+semantic, and modal focus trapping/restoration needs keyboard tests. Add abort/stale-response
+guards and complete accessible dialog behavior.
 
-**Impact:** producer, RTM, notification, or evaluator failure may be invisible while the UI says
-the system is live.
+### TD-105: Non-default Lakebase schema notification channel
 
-**Remediation:** calculate readiness from telemetry freshness and producer/RTM/App heartbeats;
-surface degraded components and last errors; separate liveness from readiness.
+The migration can replace schema identifiers while the notification listener assumes the default
+channel. Use one validated channel derivation in both SQL and Python before supporting arbitrary
+Lakebase schemas.
 
-### TD-012: The agent loop has no internal execution budget
+### TD-106: Environment portability is partial
 
-**Evidence:** `_run_agent` intentionally permits an unbounded number of model turns and tool
-calls.
+Most deployment inputs are bundle variables or checked command arguments, and personal identity
+has been removed from App configuration. Some demo defaults and the governance helper's resource
+names remain workspace-specific. Move the remaining names to one validated deployment-settings
+contract before reuse in another workspace.
 
-**Impact:** a repeated model/tool cycle can consume unbounded time, tokens, money, and activity
-events even though the UI no longer imposes an artificial four-call cap.
+### TD-107: RTM operational rejection metrics
 
-**Remediation:** retain autonomous tool choice but add generous wall-clock, turn, cost, and call
-budgets. Exceeding a budget should produce an explicit failed outcome and audit event.
+The governed Lakeflow path has quarantine and expectation metrics. The RTM-to-Lakebase path uses
+filtering appropriate for low-latency serving but does not yet publish a rejected-record count or
+reason. Add operational drop metrics before treating it as a production ingestion service.
 
-## P2 — observability, portability, and maintainability
+## Deferred remediation order
 
-### TD-013: Critical paths lack representative integration and UI tests
-
-**Evidence:** Lakebase tests largely inspect SQL strings. There are no real PostgreSQL migration
-or transaction tests, MCP source authorization tests, producer/RTM tests, restart/approval race
-tests, or frontend test runner.
-
-**Remediation:** prioritize tests for TD-001 through TD-010, using PostgreSQL integration tests,
-contract tests for Gateway/source authorization, deterministic producer state tests, Spark schema
-tests, and focused React component/accessibility tests.
-
-### TD-014: Invalid or lost Kafka data is not made observable
-
-**Evidence:** RTM uses `failOnDataLoss=false`; malformed payloads and null identity/time fields are
-filtered without a quarantine stream or counter.
-
-**Impact:** source gaps or schema drift can silently reduce telemetry completeness.
-
-**Remediation:** publish parse/drop metrics, retain invalid envelopes in a quarantine Delta table
-or topic, and document why broker data-loss tolerance is acceptable for the synthetic demo.
-
-### TD-015: Custom Lakebase schemas break telemetry notifications
-
-**Evidence:** migration setup globally replaces `asset_reliability`, including the telemetry
-channel name, while `_listen_loop` always subscribes to `asset_reliability_telemetry`.
-
-**Impact:** a non-default schema loses notification-driven telemetry updates.
-
-**Remediation:** keep a stable channel name or derive the same validated channel in both SQL and
-listener code; avoid global textual migration replacement.
-
-### TD-016: Core modules combine too many responsibilities
-
-**Evidence:** `lakebase_repository.py` is approximately 1,160 lines,
-`production_runtime.py` 878, `runtime.py` 781, and `App.tsx` 502. Persistence, migrations,
-queries, lifecycle, policy pause, formatting, and presentation logic are tightly co-located.
-
-**Remediation:** decompose by stable boundaries: migrations/health/queries/commands for Lakebase;
-incident runner/approval/model formatting for the agent; hooks and focused components for the UI.
-Do this behind existing protocols and contract tests, not as a single rewrite.
-
-### TD-017: Frontend dependency and test hygiene is incomplete
-
-**Evidence:** production dependencies are declared as `latest`; the lock contains a high-severity
-`source-map-js` advisory; there is no lint or test script.
-
-**Impact:** clean installs can drift when the lock is refreshed, and regressions rely on manual
-browser acceptance.
-
-**Remediation:** pin supported major/minor ranges, update the vulnerable transitive dependency,
-add ESLint plus Vitest/Testing Library, and automate audit review without blindly applying major
-upgrades.
-
-### TD-018: Incident polling can race and accessibility is incomplete
-
-**Evidence:** the selected incident is refetched on every dashboard revision without cancellation
-or a stale-response guard. Clickable pump cards are non-semantic articles, and modal focus is not
-fully trapped or restored.
-
-**Remediation:** cancel superseded requests, discard stale responses, use semantic controls, and
-add keyboard/focus tests for the incident dialog.
-
-### TD-019: Environment ownership is embedded in source configuration
-
-**Evidence:** workspace host, broker, warehouse, catalog/schema, App, compute types, and a personal
-Lakebase principal are committed in `app.yaml` and `databricks.yml`.
-
-**Impact:** reuse, handover, and environment separation require source edits and risk accidental
-deployment to the wrong owner or workspace.
-
-**Remediation:** keep safe demo defaults but move identity and environment-specific values to
-target variables; add a production target and preflight ownership checks.
-
-### TD-020: Documentation and recorded status have drifted
-
-**Evidence:** `DEMO.md` still describes a two-pane overlay, while the implemented UI uses a
-unified conversation/timeline view. Architecture and demo documents still encode two-model
-routing rather than the approved single-model direction.
-
-**Remediation:** update narrative and architecture artifacts after the single-model decision is
-merged and make the deployment script the single source for quality-gate commands.
-
-## Intentional demo tradeoffs
-
-These should remain documented and tested but are not defects by themselves:
-
-- fixed eight-pump synthetic fleet and deterministic transient timing;
-- one P-204 excursion per scenario, reset through Clear/restart;
-- process-local OBO tokens, provided restart recovery limitations remain explicit;
-- classic compute for broker reachability and dedicated RTM requirements;
-- manual deployment while CI/CD is unavailable;
-- deterministic local runtime as a UI fixture rather than a governance simulator;
-- one configured MCP service with dynamic `tools/list` discovery.
-
-## Recommended remediation order
-
-1. Close the source-MCP authorization bypass and add a deployed negative test.
-2. Make restart cancellation and approval replay atomic and single-flight.
-3. Enforce evidence/proposal prerequisites at the source write boundary.
-4. Make governance deployment convergent and policy-probed.
-5. Merge the approved single-model runtime and remove obsolete bindings.
-6. Add producer command leases and sequence-allocation safety.
-7. Make deployment builds reproducible and expose build identity.
-8. Add operational health derived from real freshness/heartbeats.
-9. Expand integration/UI tests before decomposing the large modules.
+1. Add real PostgreSQL concurrency/migration tests and frontend accessibility tests.
+2. Add request cancellation and accessible modal behavior.
+3. Pin frontend dependencies and resolve reviewed advisories.
+4. Unify schema/channel configuration and complete environment portability.
+5. Add RTM rejection metrics.
+6. Decompose large modules incrementally behind established interfaces.

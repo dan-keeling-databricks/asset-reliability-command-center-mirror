@@ -1,6 +1,7 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { GenieDrawer } from "./GenieDrawer";
 import type {
   AlertSummary,
   DashboardSnapshot,
@@ -116,6 +117,7 @@ function App() {
   const [activeView, setActiveView] = useState<"fleet" | "history">("fleet");
   const [incidentView, setIncidentView] = useState<"conversation" | "timeline">("conversation");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [genieOpen, setGenieOpen] = useState(false);
   const [followUp, setFollowUp] = useState("");
   const [followUpPending, setFollowUpPending] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -319,6 +321,7 @@ function App() {
           <div><span>Lakebase → UI</span><strong>{snapshot.platform.lakebase_to_ui_latency_ms} ms</strong></div>
           <div className="latency-total"><span>End to end</span><strong>{snapshot.platform.end_to_end_latency_ms} ms</strong></div>
         </div>
+        <button className="genie-launch" type="button" onClick={() => setGenieOpen(true)}><span>✦</span><div><strong>Ask fleet telemetry</strong><small>Powered by Genie</small></div></button>
         <div className="demo-menu-wrap">
           <button className="menu-button" aria-label="Open demo controls" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}><i /><i /><i /></button>
           {menuOpen && <div className="demo-menu"><p>Shift operator</p><div className="operator-control"><label htmlFor="shift-operator">Current control</label><select id="shift-operator" value={selectedOperator} onChange={(event) => setSelectedOperator(event.target.value)}>{snapshot.shift_operator.recent_users.map((user) => <option value={user.email} key={user.email}>{user.name} · {user.email}</option>)}</select><button onClick={() => void handover()} disabled={busy || !selectedOperator || selectedOperator === operator?.email}>Hand over control<span>Archives active reviews and starts a fresh scenario</span></button></div><p>Presentation</p><div className="text-size-control"><span>Text size</span><button aria-label="Decrease text size" onClick={() => setFontScale((value) => Math.max(100, value - 10))} disabled={fontScale === 100}>−</button><strong>{fontScale}%</strong><button aria-label="Increase text size" onClick={() => setFontScale((value) => Math.min(130, value + 10))} disabled={fontScale === 130}>+</button></div><p>Demo controls</p><button onClick={() => void trigger()} disabled={busy || !isOperator || snapshot.scenario.p204_triggered}>Trigger P-204 excursion<span>{isOperator ? "Start the governed failure scenario" : "Available to the shift operator"}</span></button><button className="menu-danger" onClick={() => void restart()} disabled={busy || !isOperator}>Clear & restart<span>{isOperator ? "Reset all scenario activity" : "Available to the shift operator"}</span></button></div>}
@@ -390,6 +393,7 @@ function App() {
           </>}
         </section>
       </div>}
+      <GenieDrawer open={genieOpen} onClose={() => setGenieOpen(false)} />
     </main>
   );
 }
