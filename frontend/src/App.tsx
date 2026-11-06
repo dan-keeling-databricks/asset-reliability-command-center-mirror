@@ -110,6 +110,19 @@ type HistoryRecord = {
   invocation?: InvocationSummary;
 };
 
+type LatencyMetrics = Pick<
+  DashboardSnapshot["platform"],
+  "kafka_to_lakebase_latency_ms" | "lakebase_to_ui_latency_ms" | "end_to_end_latency_ms"
+>;
+
+function latencyMetrics(snapshot: DashboardSnapshot): LatencyMetrics {
+  return {
+    kafka_to_lakebase_latency_ms: snapshot.platform.kafka_to_lakebase_latency_ms,
+    lakebase_to_ui_latency_ms: snapshot.platform.lakebase_to_ui_latency_ms,
+    end_to_end_latency_ms: snapshot.platform.end_to_end_latency_ms
+  };
+}
+
 function App() {
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
   const [incident, setIncident] = useState<IncidentDetail | null>(null);
@@ -123,11 +136,13 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedOperator, setSelectedOperator] = useState("");
+  const [displayedLatencies, setDisplayedLatencies] = useState<LatencyMetrics | null>(null);
   const [fontScale, setFontScale] = useState(() => {
     const saved = Number(localStorage.getItem("command-center-font-scale"));
     return [100, 110, 120, 130].includes(saved) ? saved : 100;
   });
   const conversationRef = useRef<HTMLDivElement>(null);
+  const latestLatenciesRef = useRef<LatencyMetrics | null>(null);
 
   const refreshIncident = useCallback(async (incidentId: string) => {
     const detail = await jsonRequest<IncidentDetail>(`/api/incidents/${incidentId}`);
@@ -138,6 +153,25 @@ function App() {
     document.documentElement.style.setProperty("--font-scale", String(fontScale / 100));
     localStorage.setItem("command-center-font-scale", String(fontScale));
   }, [fontScale]);
+
+  useEffect(() => {
+    if (!snapshot) return;
+    const latest = latencyMetrics(snapshot);
+    latestLatenciesRef.current = latest;
+    setDisplayedLatencies((current) => current ?? latest);
+  }, [
+    snapshot?.platform.kafka_to_lakebase_latency_ms,
+    snapshot?.platform.lakebase_to_ui_latency_ms,
+    snapshot?.platform.end_to_end_latency_ms
+  ]);
+
+  // Keep the operational snapshot live while making the headline latency display readable.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (latestLatenciesRef.current) setDisplayedLatencies(latestLatenciesRef.current);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let source: EventSource | null = null;
@@ -310,6 +344,7 @@ function App() {
   ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime()) : [];
   const isOperator = snapshot.viewer?.is_operator ?? false;
   const operator = snapshot.shift_operator.operator;
+  const latencies = displayedLatencies ?? latencyMetrics(snapshot);
 
   return (
     <main className="command-center">
@@ -317,9 +352,9 @@ function App() {
         <div className="brand-lockup"><div className="brand-glyph"><span /></div><div><p>Databricks Intelligence Platform</p><h1>Asset Reliability Command Center</h1></div></div>
         <div className="latency-panel">
           <div className={`connection-dot connection-${snapshot.platform.connection}`} aria-label={snapshot.platform.connection} />
-          <div><span>Kafka → Lakebase</span><strong>{snapshot.platform.kafka_to_lakebase_latency_ms} ms</strong></div>
-          <div><span>Lakebase → UI</span><strong>{snapshot.platform.lakebase_to_ui_latency_ms} ms</strong></div>
-          <div className="latency-total"><span>End to end</span><strong>{snapshot.platform.end_to_end_latency_ms} ms</strong></div>
+          <div><span>Kafka → Lakebase</span><strong>{latencies.kafka_to_lakebase_latency_ms} ms</strong></div>
+          <div><span>Lakebase → UI</span><strong>{latencies.lakebase_to_ui_latency_ms} ms</strong></div>
+          <div className="latency-total"><span>End to end</span><strong>{latencies.end_to_end_latency_ms} ms</strong></div>
         </div>
         <button className="genie-launch" type="button" onClick={() => setGenieOpen(true)}><span>✦</span><div><strong>Ask fleet telemetry</strong><small>Powered by Genie</small></div></button>
         <div className="demo-menu-wrap">
@@ -417,17 +452,58 @@ function ActivityDetails({ activity, details }: { activity: RuntimeActivity; det
   })}</dl>;
 }
 
+function activityPresentation(activity: RuntimeActivity) {
+  if (activity.category === "skill") {
+    return {
+      typeLabel: "SKILL",
+      title: "Loaded the governed response procedure",
+      subtitle: null,
+      showSummary: false
+    };
+  }
+  if (activity.category === "mcp") {
+    return {
+      typeLabel: "MCP",
+      title: "Discovering governed maintenance capabilities",
+      subtitle: null,
+      showSummary: true
+    };
+  }
+  if (activity.category === "model_call") {
+    return {
+      typeLabel: null,
+      title: activity.title,
+      subtitle: activity.actor,
+      showSummary: true
+    };
+  }
+  if (activity.category === "tool_call") {
+    return {
+      typeLabel: "Tool Call",
+      title: `Called ${activity.title}`,
+      subtitle: null,
+      showSummary: true
+    };
+  }
+  return {
+    typeLabel: activity.category.replace("_", " "),
+    title: activity.title,
+    subtitle: activity.actor,
+    showSummary: true
+  };
+}
+
 function ActivityCard({ activity, busy, runAction, compact = false }: { activity: RuntimeActivity; busy: boolean; runAction: (action: RuntimeAction) => Promise<void>; compact?: boolean }) {
   const category = activity.status === "waiting" ? "approval" : activity.category;
   const policy = gatewayDecision(activity);
   const runtimeLabel = { running: "Running", complete: "Completed", waiting: "Waiting", failed: "Failed", info: "Information" }[activity.status];
   const details = activity.details.filter((detail) => !["decision", "execution", "input tokens", "output tokens", "model output"].includes(detail.label.toLowerCase()));
   const tokenTotal = activity.category === "model_call" ? activity.details.filter((detail) => /tokens/i.test(detail.label)).reduce((sum, detail) => sum + Number(detail.value.replaceAll(",", "")), 0) : 0;
-  const typeLabel = activity.category === "model_call" ? "Model execution" : activity.category.replace("_", " ");
+  const presentation = activityPresentation(activity);
   const reviewAction = activity.action?.href ? { ...activity.action, endpoint: undefined } : null;
   const continueAction = activity.action?.endpoint ? { ...activity.action, href: undefined } : null;
   const actions = activity.action && <div className="runtime-actions">{reviewAction && <button className="runtime-action" disabled={busy} onClick={() => void runAction(reviewAction)}>Review</button>}{continueAction && <button className="runtime-action runtime-action-primary" disabled={busy} onClick={() => void runAction(continueAction)}>I've approved, continue</button>}</div>;
-  return <article className={`chat-event runtime-event event-${activity.status} ${compact ? "compact-card" : ""}`}><EventIcon category={category} /><div className="event-content"><div className="event-kicker"><span>{typeLabel}</span><time>{timeLabel(activity.emitted_at)}</time></div><div className="event-title"><div><strong>{activity.title}</strong>{activity.actor && <span>{activity.actor}</span>}</div><span className={`runtime-status runtime-status-${activity.status}`}>{runtimeLabel}</span></div>{activity.summary && (activity.category === "model_call" ? <section className="event-output"><strong>Output</strong><AgentMessage content={activity.summary} /></section> : <p>{activity.summary}</p>)}{details.length > 0 && <ActivityDetails activity={activity} details={details} />}{policy && <section className={`gateway-policy policy-${policy.toLowerCase()}`}><strong>Unity Gateway policy applied</strong><span>{policy}</span><p>{activity.details.find((detail) => detail.label.toLowerCase() === "execution")?.value ?? (policy === "ALLOW" ? "Execution occurred" : "Execution did not occur")}</p>{actions}</section>}{!policy && actions}<footer className="event-footer">{tokenTotal > 0 && <span>Total tokens <strong>{tokenTotal.toLocaleString()}</strong></span>}</footer></div></article>;
+  return <article className={`chat-event runtime-event event-${activity.status} ${compact ? "compact-card" : ""}`}><EventIcon category={category} /><div className="event-content"><div className="event-kicker">{presentation.typeLabel && <span>{presentation.typeLabel}</span>}<time>{timeLabel(activity.emitted_at)}</time></div><div className="event-title"><div><strong>{presentation.title}</strong>{presentation.subtitle && <span>{presentation.subtitle}</span>}</div><span className={`runtime-status runtime-status-${activity.status}`}>{runtimeLabel}</span></div>{presentation.showSummary && activity.summary && (activity.category === "model_call" ? <section className="event-output"><strong>Output</strong><AgentMessage content={activity.summary} /></section> : <p>{activity.summary}</p>)}{details.length > 0 && <ActivityDetails activity={activity} details={details} />}{policy && <section className={`gateway-policy policy-${policy.toLowerCase()}`}><strong>Unity Gateway Applied Service Policy</strong><span>{policy}</span><p>{activity.details.find((detail) => detail.label.toLowerCase() === "execution")?.value ?? (policy === "ALLOW" ? "Execution occurred" : "Execution did not occur")}</p>{actions}</section>}{!policy && actions}<footer className="event-footer">{tokenTotal > 0 && <span>Total tokens <strong>{tokenTotal.toLocaleString()}</strong></span>}</footer></div></article>;
 }
 
 type TimelineHover = { activity: RuntimeActivity; left: number; top: number; width: number };
