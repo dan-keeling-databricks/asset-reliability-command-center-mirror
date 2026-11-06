@@ -20,6 +20,29 @@ The entry point is deliberately conservative:
 The script never handles an OAuth secret. Authentication remains in the selected Databricks CLI
 profile, and generated MCP connection credentials remain inside the governance deployment helper.
 
+## Choose the deployment scope
+
+Use the default complete-demo scope whenever a change affects Lakebase schema, producer or RTM
+code, the governed-history pipeline, Unity Catalog resources, Genie, the governed Skill, MCP, or
+Unity Gateway. It preserves the dependency-ordered deployment described below.
+
+Use `--app-only` when every runtime change is contained within the existing App boundary:
+
+- React source and styles under `frontend/`;
+- FastAPI routes, operational runtime, and App presentation logic under `backend/`;
+- App process configuration in `app.yaml`; or
+- App Python dependencies in `pyproject.toml`, `uv.lock`, and `requirements.txt`.
+
+Do not use `--app-only` for `sql/lakebase_schema.sql`, `src/`, `genie/`, `skills/`, governance SQL,
+or non-App resource changes in `databricks.yml`. Documentation, tests, and deployment-tooling-only
+commits do not require any workspace deployment.
+
+Both scopes run the same clean-commit, identity, locked-dependency, test, build, staging, and
+bundle-validation preflight. App-only execution resolves and validates the existing App's narrow
+bundle source directory, synchronizes only `.artifacts/app`, and creates a snapshot through the
+direct App API. It does not run a bundle resource deployment, Lakebase migration, continuous-job
+restart, pipeline wait, Genie update, or Skill/MCP/Gateway reconciliation.
+
 ## Target inputs
 
 The current development environment is:
@@ -127,6 +150,42 @@ The script applies these steps in order:
    execution, after first proving exact tool discovery and a benign source read.
 9. Read-only checks inspect the App, bundle summary, and curated view.
 
+## Execute an App-only deployment
+
+For an eligible App-only commit, run the same preflight command with `--app-only`, review its
+explicit `scope App only` output, and then add `--execute`:
+
+```bash
+uv run python scripts/deploy.py \
+  --profile fe_vm_rtm \
+  --target dev \
+  --expected-host https://fevm-classic-stable-realtime-demos.cloud.databricks.com \
+  --access-group asset-reliability-command-center-operator \
+  --catalog classic_stable_realtime_demos_catalog \
+  --schema asset_reliability_command_center \
+  --app-name asset-reliability-center \
+  --app-service-principal-client-id bd5178cb-8774-4d77-bc63-b4f491716d0b \
+  --app-only
+```
+
+After preflight passes, repeat it with `--execute`. The helper runs `databricks sync` only against
+the validated App source directory, then calls `databricks apps deploy <app-name>` with that exact
+source path. Supplying the App name selects the direct API mode and avoids the CLI's enhanced
+project deployment, which would reconcile the full bundle. Existing OBO scopes are checked, and
+App compute is additionally restarted only if the required `genie` or `ai-gateway` scope is
+unexpectedly absent. Complete the App-specific live checks below, including `/api/build-info`,
+`/api/health`, and the changed user journey.
+
+### App-only live validation
+
+1. Run `databricks apps get asset-reliability-center --profile fe_vm_rtm -o json` and confirm the
+   deployment succeeded and the App is `RUNNING`.
+2. Confirm the authenticated `/api/build-info` response contains the selected commit and
+   `/api/health` remains `ok`.
+3. Exercise the changed App journey and inspect browser console and network activity for UI work.
+4. If the change touches agent, Genie, or OBO behavior, execute that specific integration path;
+   otherwise do not restart or redeploy unrelated workloads merely to validate the App snapshot.
+
 ### App snapshot boundary
 
 The bundle root is not a valid App source directory. It contains the serialized Genie resource,
@@ -147,7 +206,7 @@ requires longer:
 --table-timeout-seconds 900
 ```
 
-## Live validation
+## Complete-demo live validation
 
 Automated resource checks do not prove the business path. Complete this acceptance sequence in
 the deployed App and record identifiers as text:

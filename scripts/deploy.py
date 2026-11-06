@@ -1,9 +1,11 @@
-"""Checked, dependency-ordered manual deployment for the complete demo.
+"""Checked manual deployment for the complete demo or only its Databricks App.
 
 The project intentionally has no CI/CD service.  This entry point gives a human deployer one
 repeatable path that validates a clean source revision, produces current frontend assets,
-injects build provenance, reconciles bundle and governance resources, restarts continuous
-workloads, and verifies the live platform state.
+injects build provenance, and verifies the live platform state.  The default complete-demo scope
+reconciles bundle and governance resources and restarts continuous workloads.  ``--app-only``
+instead updates only the staged Databricks App snapshot for changes contained within the App
+runtime boundary.
 
 Remote mutations are disabled unless ``--execute`` is supplied.  No credential or generated
 secret is read, printed, or written by this script; Databricks CLI authentication is selected
@@ -153,6 +155,14 @@ def parse_args() -> argparse.Namespace:
         help="Apply remote mutations after all local and remote preflight checks pass.",
     )
     parser.add_argument(
+        "--app-only",
+        action="store_true",
+        help=(
+            "Deploy only the staged Databricks App snapshot; skip Lakebase migration, "
+            "data-plane workloads, Genie, Skill, MCP, and Unity Gateway reconciliation."
+        ),
+    )
+    parser.add_argument(
         "--table-timeout-seconds",
         type=int,
         default=600,
@@ -279,7 +289,9 @@ def assert_cli_version(runner: Runner) -> None:
         raise RuntimeError(f"Databricks CLI {required} or later is required; found {numeric}")
 
 
-def verify_profile(runner: Runner, inputs: DeploymentInputs) -> dict[str, Any]:
+def verify_profile(
+    runner: Runner, inputs: DeploymentInputs
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Confirm workspace, human group membership, and the existing App workload identity."""
 
     auth = runner.json(
@@ -323,7 +335,22 @@ def verify_profile(runner: Runner, inputs: DeploymentInputs) -> dict[str, Any]:
             f"App {inputs.app_name!r} uses service principal {actual_principal!r}, not the "
             "explicit deployment input"
         )
-    return user
+    return user, app
+
+
+def resolve_app_source_path(app: dict[str, Any]) -> str:
+    """Return the existing narrow bundle path that may receive an App-only sync."""
+
+    source_path = str(app.get("default_source_code_path") or "")
+    expected_suffix = "/files/.artifacts/app"
+    if not source_path.startswith("/Workspace/Users/") or not source_path.endswith(
+        expected_suffix
+    ):
+        raise RuntimeError(
+            "App-only deployment requires the existing App source path below a user bundle "
+            f"and ending in {expected_suffix!r}; found {source_path!r}"
+        )
+    return source_path
 
 
 def assert_requirements_current(runner: Runner) -> None:
@@ -393,10 +420,52 @@ def run_quality_gate(runner: Runner, inputs: DeploymentInputs) -> None:
     runner.run(["git", "diff", "--exit-code"])
 
 
-def deployment_steps(inputs: DeploymentInputs) -> list[Step]:
-    """Return remote mutations in their required dependency order."""
+def deployment_steps(
+    inputs: DeploymentInputs,
+    *,
+    app_only: bool = False,
+    app_source_path: str | None = None,
+) -> list[Step]:
+    """Return remote mutations for the selected deployment scope."""
 
     flags = inputs.bundle_flags
+    app_step = Step(
+        "Deploy the App snapshot after Genie and telemetry are ready",
+        ["databricks", "apps", "deploy", *flags, "--auto-approve"],
+    )
+    if app_only:
+        if not app_source_path:
+            raise ValueError("App-only deployment requires the resolved App source path")
+        return [
+            Step(
+                "Sync only the staged App runtime source",
+                [
+                    "databricks",
+                    "sync",
+                    str(ROOT / ".artifacts" / "app"),
+                    app_source_path,
+                    "--full",
+                    "--profile",
+                    inputs.profile,
+                ],
+            ),
+            Step(
+                "Create the App snapshot through the direct API",
+                [
+                    "databricks",
+                    "apps",
+                    "deploy",
+                    inputs.app_name,
+                    "--source-code-path",
+                    app_source_path,
+                    "--mode",
+                    "SNAPSHOT",
+                    "--profile",
+                    inputs.profile,
+                ],
+            ),
+        ]
+
     return [
         Step(
             "Deploy the governed data plane in readiness-gated phases",
@@ -422,10 +491,7 @@ def deployment_steps(inputs: DeploymentInputs) -> list[Step]:
                 "--deploy",
             ],
         ),
-        Step(
-            "Deploy the App snapshot after Genie and telemetry are ready",
-            ["databricks", "apps", "deploy", *flags, "--auto-approve"],
-        ),
+        app_step,
         Step(
             "Create or update the Unity Gateway policy function",
             ["databricks", "bundle", "run", *flags, "setup_unity_governance"],
@@ -478,25 +544,33 @@ def ensure_app_user_scopes(
     )
 
 
-def verify_live_resources(runner: Runner, inputs: DeploymentInputs, commit: str) -> None:
-    """Run read-only platform checks after every dependency has been reconciled."""
+def verify_live_resources(
+    runner: Runner,
+    inputs: DeploymentInputs,
+    commit: str,
+    *,
+    app_only: bool = False,
+) -> None:
+    """Run read-only platform checks appropriate to the deployed scope."""
 
     runner.run(
         ["databricks", "apps", "get", inputs.app_name, "--profile", inputs.profile]
     )
-    runner.run(["databricks", "bundle", "summary", *inputs.bundle_flags])
-    runner.run(
-        [
-            "databricks",
-            "tables",
-            "get",
-            f"{inputs.catalog}.{inputs.schema}.pump_telemetry_history",
-            "--profile",
-            inputs.profile,
-        ]
-    )
+    if not app_only:
+        runner.run(["databricks", "bundle", "summary", *inputs.bundle_flags])
+        runner.run(
+            [
+                "databricks",
+                "tables",
+                "get",
+                f"{inputs.catalog}.{inputs.schema}.pump_telemetry_history",
+                "--profile",
+                inputs.profile,
+            ]
+        )
+    scope = "App-only deployment" if app_only else "Complete deployment"
     print(
-        f"Deployment completed for commit {commit}. Finish the authenticated App and "
+        f"{scope} completed for commit {commit}. Finish the authenticated App and "
         "end-to-end acceptance checklist in docs/DEPLOYMENT.md before recording evidence."
     )
 
@@ -520,23 +594,32 @@ def main() -> None:
     commit = current_commit(runner)
     write_build_info(commit)
     assert_cli_version(runner)
-    user = verify_profile(runner, inputs)
+    user, app = verify_profile(runner, inputs)
+    app_source_path = resolve_app_source_path(app) if args.app_only else None
     print(
         f"Preflight target: {inputs.expected_host} as "
-        f"{user.get('userName', user.get('id', 'unknown user'))}; commit {commit}"
+        f"{user.get('userName', user.get('id', 'unknown user'))}; commit {commit}; "
+        f"scope {'App only' if args.app_only else 'complete demo'}"
     )
     run_quality_gate(runner, inputs)
 
     if not args.execute:
-        print("Preflight passed. Re-run with --execute to apply the ordered deployment.")
+        print(
+            "Preflight passed. Re-run with --execute to apply the selected "
+            "deployment scope."
+        )
         return
 
-    for step in deployment_steps(inputs):
+    for step in deployment_steps(
+        inputs,
+        app_only=args.app_only,
+        app_source_path=app_source_path,
+    ):
         print(f"\n==> {step.label}")
         runner.run(step.command, environment=step.environment)
-        if step.label.startswith("Deploy the App snapshot"):
+        if step.command[:3] == ["databricks", "apps", "deploy"]:
             ensure_app_user_scopes(runner, inputs)
-    verify_live_resources(runner, inputs, commit)
+    verify_live_resources(runner, inputs, commit, app_only=args.app_only)
 
 
 if __name__ == "__main__":
