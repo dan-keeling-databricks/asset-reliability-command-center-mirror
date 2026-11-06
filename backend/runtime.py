@@ -591,6 +591,15 @@ class LocalCommandCenterRuntime:
                     status="complete",
                     status_label="Loaded",
                     summary="Loaded the governed response procedure",
+                    action=(
+                        RuntimeAction(
+                            label="Read Standard Operating Procedure",
+                            kind="link",
+                            href=self.settings.governed_skill_document_url,
+                        )
+                        if self.settings.governed_skill_document_url
+                        else None
+                    ),
                 ),
                 None,
                 False,

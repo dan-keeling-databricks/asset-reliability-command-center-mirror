@@ -22,6 +22,8 @@ env:
     value: https://fevm-classic-stable-realtime-demos.cloud.databricks.com/ai-gateway/skills/?schema=classic_stable_realtime_demos_catalog.asset_reliability_command_center
   - name: GOVERNED_SKILL_TOOL
     value: skill_classic_stable_realtime_demos_catalog.asset_reliability_command_center.asset-reliability-response
+  - name: GOVERNED_SKILL_DOCUMENT_URL
+    value: https://fevm-classic-stable-realtime-demos.cloud.databricks.com/api/2.0/fs/files/Skills/classic_stable_realtime_demos_catalog/asset_reliability_command_center/asset-reliability-response/SKILL.md
   - name: LAKEBASE_SCHEMA
     value: asset_reliability
   - name: SSE_COALESCE_SECONDS
