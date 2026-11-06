@@ -269,6 +269,12 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .unified-conversation, .execution-view { margin-top: 12px; border-top: 1px solid #e3e3df; }
 
 .runtime-event .event-content { display: flex; min-height: 126px; flex-direction: column; }
+.runtime-event:has(.icon-skill) .event-content { min-height: 0; }
+.runtime-event:has(.icon-skill) .event-footer:empty { display: none; }
+.event-subtitle-primary { margin-top: 0 !important; color: #414148 !important; }
+.skill-procedure-link { width: fit-content; margin-top: 6px; display: inline-flex; align-items: center; gap: 5px; color: #6559ad; font-weight: 700; text-decoration: none; }
+.skill-procedure-link:hover { color: #44378f; text-decoration: underline; text-underline-offset: 2px; }
+.skill-procedure-link > span { margin: 0; color: inherit; font: inherit; overflow: visible; }
 .event-footer { min-height: 26px; margin-top: auto; padding-top: 8px; border-top: 1px solid #ecece8; }
 .event-footer > span { display: flex; justify-content: space-between; color: var(--muted); }
 .gateway-policy { margin-top: 9px; padding: 9px 10px; display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; border: 1px solid #bddde8; border-radius: 7px; background: #f2fafc; }

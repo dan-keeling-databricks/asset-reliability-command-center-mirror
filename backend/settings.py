@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     governed_mcp_endpoint: str | None = None
     governed_skill_endpoint: str | None = None
     governed_skill_tool: str | None = None
+    governed_skill_document_url: str | None = None
     approval_poll_seconds: float = 2.0
     model_input_cost_per_million: float = 3.0
     model_output_cost_per_million: float = 15.0

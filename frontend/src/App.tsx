@@ -471,8 +471,8 @@ function activityPresentation(activity: RuntimeActivity) {
   }
   if (activity.category === "model_call") {
     return {
-      typeLabel: null,
-      title: activity.title,
+      typeLabel: "Model Execution",
+      title: null,
       subtitle: activity.actor,
       showSummary: true
     };
@@ -500,10 +500,11 @@ function ActivityCard({ activity, busy, runAction, compact = false }: { activity
   const details = activity.details.filter((detail) => !["decision", "execution", "input tokens", "output tokens", "model output"].includes(detail.label.toLowerCase()));
   const tokenTotal = activity.category === "model_call" ? activity.details.filter((detail) => /tokens/i.test(detail.label)).reduce((sum, detail) => sum + Number(detail.value.replaceAll(",", "")), 0) : 0;
   const presentation = activityPresentation(activity);
-  const reviewAction = activity.action?.href ? { ...activity.action, endpoint: undefined } : null;
+  const skillProcedureHref = activity.category === "skill" ? activity.action?.href ?? "/api/governed-response-procedure" : null;
+  const reviewAction = activity.category !== "skill" && activity.action?.href ? { ...activity.action, endpoint: undefined } : null;
   const continueAction = activity.action?.endpoint ? { ...activity.action, href: undefined } : null;
   const actions = activity.action && <div className="runtime-actions">{reviewAction && <button className="runtime-action" disabled={busy} onClick={() => void runAction(reviewAction)}>Review</button>}{continueAction && <button className="runtime-action runtime-action-primary" disabled={busy} onClick={() => void runAction(continueAction)}>I've approved, continue</button>}</div>;
-  return <article className={`chat-event runtime-event event-${activity.status} ${compact ? "compact-card" : ""}`}><EventIcon category={category} /><div className="event-content"><div className="event-kicker">{presentation.typeLabel && <span>{presentation.typeLabel}</span>}<time>{timeLabel(activity.emitted_at)}</time></div><div className="event-title"><div><strong>{presentation.title}</strong>{presentation.subtitle && <span>{presentation.subtitle}</span>}</div><span className={`runtime-status runtime-status-${activity.status}`}>{runtimeLabel}</span></div>{presentation.showSummary && activity.summary && (activity.category === "model_call" ? <section className="event-output"><strong>Output</strong><AgentMessage content={activity.summary} /></section> : <p>{activity.summary}</p>)}{details.length > 0 && <ActivityDetails activity={activity} details={details} />}{policy && <section className={`gateway-policy policy-${policy.toLowerCase()}`}><strong>Unity Gateway Applied Service Policy</strong><span>{policy}</span><p>{activity.details.find((detail) => detail.label.toLowerCase() === "execution")?.value ?? (policy === "ALLOW" ? "Execution occurred" : "Execution did not occur")}</p>{actions}</section>}{!policy && actions}<footer className="event-footer">{tokenTotal > 0 && <span>Total tokens <strong>{tokenTotal.toLocaleString()}</strong></span>}</footer></div></article>;
+  return <article className={`chat-event runtime-event event-${activity.status} ${compact ? "compact-card" : ""}`}><EventIcon category={category} /><div className="event-content"><div className="event-kicker">{presentation.typeLabel && <span>{presentation.typeLabel}</span>}<time>{timeLabel(activity.emitted_at)}</time></div><div className="event-title"><div>{presentation.title && <strong>{presentation.title}</strong>}{presentation.subtitle && <span className={!presentation.title ? "event-subtitle-primary" : undefined}>{presentation.subtitle}</span>}{skillProcedureHref && <a className="skill-procedure-link" href={skillProcedureHref} target="_blank" rel="noopener noreferrer">Read Standard Operating Procedure <span aria-hidden="true">↗</span></a>}</div><span className={`runtime-status runtime-status-${activity.status}`}>{runtimeLabel}</span></div>{presentation.showSummary && activity.summary && (activity.category === "model_call" ? <section className="event-output"><strong>Output</strong><AgentMessage content={activity.summary} /></section> : <p>{activity.summary}</p>)}{details.length > 0 && <ActivityDetails activity={activity} details={details} />}{policy && <section className={`gateway-policy policy-${policy.toLowerCase()}`}><strong>Unity Gateway Applied Service Policy</strong><span>{policy}</span><p>{activity.details.find((detail) => detail.label.toLowerCase() === "execution")?.value ?? (policy === "ALLOW" ? "Execution occurred" : "Execution did not occur")}</p>{actions}</section>}{!policy && actions}<footer className="event-footer">{tokenTotal > 0 && <span>Total tokens <strong>{tokenTotal.toLocaleString()}</strong></span>}</footer></div></article>;
 }
 
 type TimelineHover = { activity: RuntimeActivity; left: number; top: number; width: number };

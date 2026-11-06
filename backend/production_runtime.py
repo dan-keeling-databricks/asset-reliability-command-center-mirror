@@ -270,6 +270,17 @@ class ProductionCommandCenterRuntime:
                     status="complete",
                     status_label="Loaded",
                     summary="Loaded the governed response procedure",
+                    action=(
+                        RuntimeAction(
+                            label="Read Standard Operating Procedure",
+                            kind="link",
+                            href=getattr(
+                                self.settings, "governed_skill_document_url", None
+                            ),
+                        )
+                        if getattr(self.settings, "governed_skill_document_url", None)
+                        else None
+                    ),
                     started_at=skill_started_at,
                     completed_at=skill_completed_at,
                 ),

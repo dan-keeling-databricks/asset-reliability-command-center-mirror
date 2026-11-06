@@ -17,7 +17,7 @@ from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.genie_router import create_genie_router
@@ -174,6 +174,14 @@ def create_app(
         except (OSError, ValueError, AttributeError):
             file_commit = ""
         return {"git_commit": file_commit or "unknown"}
+
+    @app.get("/api/governed-response-procedure", include_in_schema=False)
+    async def governed_response_procedure() -> RedirectResponse:
+        """Open the exact governed Skill document configured for the deployed runtime."""
+
+        if not settings.governed_skill_document_url:
+            raise HTTPException(status_code=404, detail="Governed procedure link is unavailable")
+        return RedirectResponse(settings.governed_skill_document_url)
 
     @app.get("/api/dashboard")
     async def dashboard(

@@ -67,6 +67,25 @@ def test_dashboard_exposes_eight_live_pumps_and_platform_status() -> None:
         )
 
 
+def test_governed_procedure_link_redirects_to_configured_skill_document() -> None:
+    document_url = "https://workspace.example/api/2.0/fs/files/Skills/catalog/schema/skill/SKILL.md"
+    settings = Settings(
+        app_adapter="local",
+        governed_skill_document_url=document_url,
+        telemetry_interval_seconds=0.05,
+        alert_evaluator_interval_seconds=0.02,
+        local_event_step_seconds=0.01,
+    )
+    repository = LocalCommandCenterRepository(initial_snapshot())
+    runtime = LocalCommandCenterRuntime(repository, settings)
+
+    with TestClient(create_app(settings, repository, runtime)) as client:
+        response = client.get("/api/governed-response-procedure", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == document_url
+
+
 def test_trigger_runs_generic_activity_stream_and_waits_for_approval() -> None:
     with local_client() as client:
         response = client.post("/api/scenario/trigger-p204")
