@@ -76,6 +76,10 @@ def test_app_only_deployment_mutates_only_the_app() -> None:
         str(Path(__file__).resolve().parents[1] / ".artifacts" / "app"),
         source_path,
         "--full",
+        "--include",
+        "**",
+        "--exclude",
+        ".databricks/**",
         "--profile",
         "explicit-profile",
     ]
