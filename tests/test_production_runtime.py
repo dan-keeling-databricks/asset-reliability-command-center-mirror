@@ -17,6 +17,7 @@ from backend.production_runtime import (
     _canonical_decision_rationale,
     _canonical_terminal_response,
     _fallback_decision_rationale,
+    _result_summary,
     _valid_decision_rationale,
     _valid_terminal_response,
 )
@@ -27,6 +28,24 @@ def test_settings_default_to_one_sonnet_endpoint() -> None:
     settings = Settings(_env_file=None)
 
     assert settings.model_endpoint == "databricks-claude-sonnet-4-5"
+
+
+def test_telemetry_result_summary_names_the_returned_operating_context() -> None:
+    summary = _result_summary(
+        {
+            "vibration_mm_s": 4.969,
+            "warning_threshold_mm_s": 4.4,
+            "flow_m3_h": 181.25,
+            "current_a": 42.1,
+            "trend": [4.12, 4.56, 4.969],
+        }
+    )
+
+    assert summary == (
+        "The MCP server returned current vibration of 4.969 mm/s against the 4.4 mm/s "
+        "warning threshold, flow of 181.25 m³/h, motor current of 42.1 A, and 3 recent "
+        "vibration readings spanning 4.12–4.969 mm/s."
+    )
 
 
 @pytest.mark.asyncio

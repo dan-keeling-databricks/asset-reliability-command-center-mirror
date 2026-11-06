@@ -590,7 +590,7 @@ class LocalCommandCenterRuntime:
                     actor="reliability-investigation",
                     status="complete",
                     status_label="Loaded",
-                    summary="Applied the current governed reliability procedure.",
+                    summary="Loaded the governed response procedure",
                 ),
                 None,
                 False,

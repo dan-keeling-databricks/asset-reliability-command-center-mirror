@@ -269,7 +269,7 @@ class ProductionCommandCenterRuntime:
                     actor=self.settings.governed_skill_tool,
                     status="complete",
                     status_label="Loaded",
-                    summary="Runtime loaded the current Unity Catalog response procedure.",
+                    summary="Loaded the governed response procedure",
                     started_at=skill_started_at,
                     completed_at=skill_completed_at,
                 ),
@@ -821,13 +821,39 @@ def _result_summary(data: dict[str, Any]) -> str:
     if "failure_probability_pct" in data:
         return f"Failure risk assessed at {data['failure_probability_pct']}% ({data['risk_band']})."
     if "vibration_mm_s" in data:
-        return f"Vibration is {data['vibration_mm_s']} mm/s with correlated operating context."
+        context = [f"current vibration of {_display_number(data['vibration_mm_s'])} mm/s"]
+        if "warning_threshold_mm_s" in data:
+            context[0] += (
+                " against the "
+                f"{_display_number(data['warning_threshold_mm_s'])} mm/s warning threshold"
+            )
+        if "flow_m3_h" in data:
+            context.append(f"flow of {_display_number(data['flow_m3_h'])} m³/h")
+        if "current_a" in data:
+            context.append(f"motor current of {_display_number(data['current_a'])} A")
+        trend = [value for value in data.get("trend", []) if isinstance(value, int | float)]
+        if trend:
+            context.append(
+                f"{len(trend)} recent vibration readings spanning "
+                f"{_display_number(min(trend))}–{_display_number(max(trend))} mm/s"
+            )
+        return f"The MCP server returned {_natural_join(context)}."
     if data.get("part_available"):
         return (
             f"{data.get('part')} is available; estimated duration is "
             f"{data.get('estimated_duration_hours')} h."
         )
     return "Governed tool completed successfully."
+
+
+def _display_number(value: Any) -> str:
+    return f"{float(value):.3f}".rstrip("0").rstrip(".")
+
+
+def _natural_join(values: list[str]) -> str:
+    if len(values) == 1:
+        return values[0]
+    return f"{', '.join(values[:-1])}, and {values[-1]}"
 
 
 def _fallback_terminal_response(incident: IncidentDetail, result: dict[str, Any]) -> str:
