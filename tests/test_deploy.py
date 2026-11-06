@@ -12,6 +12,7 @@ from scripts.deploy import (
     DeploymentInputs,
     assert_frontend_fresh,
     deployment_steps,
+    resolve_app_source_path,
     stage_app_source,
     write_build_info,
 )
@@ -57,6 +58,52 @@ def test_deployment_steps_are_explicit_and_dependency_ordered() -> None:
     assert "existing-app-sp" in steps[0].command
     assert "--timeout-seconds" in steps[0].command
     assert "900" in steps[0].command
+
+
+def test_app_only_deployment_mutates_only_the_app() -> None:
+    source_path = "/Workspace/Users/operator/.bundle/project/dev/files/.artifacts/app"
+    steps = deployment_steps(
+        inputs(), app_only=True, app_source_path=source_path
+    )
+
+    assert [step.label for step in steps] == [
+        "Sync only the staged App runtime source",
+        "Create the App snapshot through the direct API",
+    ]
+    assert steps[0].command == [
+        "databricks",
+        "sync",
+        str(Path(__file__).resolve().parents[1] / ".artifacts" / "app"),
+        source_path,
+        "--full",
+        "--profile",
+        "explicit-profile",
+    ]
+    assert steps[1].command == [
+        "databricks",
+        "apps",
+        "deploy",
+        "asset-reliability-center",
+        "--source-code-path",
+        source_path,
+        "--mode",
+        "SNAPSHOT",
+        "--profile",
+        "explicit-profile",
+    ]
+
+
+def test_app_only_source_path_must_be_the_narrow_existing_bundle_path() -> None:
+    app = {
+        "default_source_code_path": (
+            "/Workspace/Users/operator/.bundle/project/dev/files/.artifacts/app"
+        )
+    }
+    assert resolve_app_source_path(app) == app["default_source_code_path"]
+
+    for unsafe_path in ("", "/Workspace/Users/operator", "/Shared/.artifacts/app"):
+        with pytest.raises(RuntimeError, match="App-only deployment requires"):
+            resolve_app_source_path({"default_source_code_path": unsafe_path})
 
 
 def test_build_info_contains_only_the_selected_commit(tmp_path: Path) -> None:
