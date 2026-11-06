@@ -169,12 +169,14 @@ uv run python scripts/deploy.py \
 ```
 
 After preflight passes, repeat it with `--execute`. The helper runs `databricks sync` only against
-the validated App source directory, then calls `databricks apps deploy <app-name>` with that exact
-source path. Supplying the App name selects the direct API mode and avoids the CLI's enhanced
-project deployment, which would reconcile the full bundle. Existing OBO scopes are checked, and
-App compute is additionally restarted only if the required `genie` or `ai-gateway` scope is
-unexpectedly absent. Complete the App-specific live checks below, including `/api/build-info`,
-`/api/health`, and the changed user journey.
+the validated App source directory. The explicit include overrides the repository's ignored
+`.artifacts/` parent while the sync client's own `.databricks/` state remains excluded. It then
+calls `databricks apps deploy <app-name>` with that exact source path. Supplying the App name
+selects the direct API mode and avoids the CLI's enhanced project deployment, which would
+reconcile the full bundle. Existing OBO scopes are checked, and App compute is additionally
+restarted only if the required `genie` or `ai-gateway` scope is unexpectedly absent. Complete the
+App-specific live checks below, including `/api/build-info`, `/api/health`, and the changed user
+journey.
 
 ### App-only live validation
 
