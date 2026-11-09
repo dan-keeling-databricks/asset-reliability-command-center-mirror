@@ -272,7 +272,7 @@ class LocalCommandCenterRuntime:
                     actor="Enterprise maintenance service",
                     status="complete",
                     status_label="Completed",
-                    summary="Work order WO-10482 scheduled for the next available outage.",
+                    summary="Work order WO-10482 scheduled for immediate maintenance.",
                     details=[
                         ActivityDatum(label="Work order", value="WO-10482"),
                         ActivityDatum(label="Scope", value="Replace drive-end bearing"),
@@ -283,7 +283,7 @@ class LocalCommandCenterRuntime:
                 "- **Finding:** Persistent drive-end bearing vibration excursion.\n"
                 "- **Evidence:** Vibration reached 5.2 mm/s and continued rising.\n"
                 "- **Risk:** 87% likelihood of failure before the next maintenance window.\n"
-                "- **Action:** Work order WO-10482 scheduled for the next available outage."
+                "- **Action:** Work order WO-10482 scheduled for immediate maintenance."
             )
             current.activities.append(
                 RuntimeActivity(
@@ -296,6 +296,8 @@ class LocalCommandCenterRuntime:
                     details=[
                         ActivityDatum(label="Input tokens", value="684"),
                         ActivityDatum(label="Output tokens", value="96"),
+                        ActivityDatum(label="Purpose", value="Final incident response"),
+                        ActivityDatum(label="Estimated cost", value="0.0042"),
                     ],
                 )
             )
@@ -366,7 +368,10 @@ class LocalCommandCenterRuntime:
                     status_label="Completed",
                     summary=answer,
                     details=[
+                        ActivityDatum(label="Input tokens", value="284"),
                         ActivityDatum(label="Output tokens", value="96"),
+                        ActivityDatum(label="Purpose", value="Operator follow-up"),
+                        ActivityDatum(label="Estimated cost", value="0.0023"),
                         ActivityDatum(label="Model output", value=answer),
                     ],
                 )
@@ -529,9 +534,18 @@ class LocalCommandCenterRuntime:
                     status_label="Completed",
                     summary=conclusion,
                     details=[
+                        ActivityDatum(label="Input tokens", value="438"),
+                        ActivityDatum(label="Output tokens", value="92"),
+                        ActivityDatum(label="Purpose", value="Final incident response"),
+                        ActivityDatum(label="Estimated cost", value="0.0027"),
                         ActivityDatum(label="Model output", value=conclusion)
                     ],
                 )
+            )
+            current.totals.input_tokens += 438
+            current.totals.output_tokens += 92
+            current.totals.estimated_cost_usd = round(
+                current.totals.estimated_cost_usd + 0.0027, 4
             )
             current.updated_at = utc_now()
             alert_item = next(item for item in state.alerts if item.id == alert.id)
@@ -682,11 +696,36 @@ class LocalCommandCenterRuntime:
             actor="maintenance-actions · governed MCP",
             status="waiting",
             status_label="ASK · Not executed",
-            summary="Policy requires human approval before this operational write can execute.",
+            summary=(
+                "Approval required to call tool submit_work_order on asset_reliability_mcp."
+            ),
             details=[
                 ActivityDatum(label="Decision", value="ASK"),
                 ActivityDatum(label="Execution", value="Not executed"),
-                ActivityDatum(label="Scope", value="Replace P-204 drive-end bearing"),
+                ActivityDatum(
+                    label="Finding",
+                    value="Persistent drive-end bearing vibration excursion on P-204.",
+                ),
+                ActivityDatum(
+                    label="Evidence",
+                    value="Vibration reached 5.2 mm/s and continued rising.",
+                ),
+                ActivityDatum(
+                    label="Risk",
+                    value="87% probability of failure before the maintenance window (high risk).",
+                ),
+                ActivityDatum(
+                    label="Action",
+                    value="Replace the P-204 drive-end bearing during immediate maintenance.",
+                ),
+                ActivityDatum(
+                    label="Rationale",
+                    value=(
+                        "Replace the drive-end bearing because the sustained vibration rise "
+                        "indicates high near-term failure risk requiring immediate maintenance."
+                    ),
+                ),
+                ActivityDatum(label="Planned window", value="immediate maintenance"),
             ],
             action=RuntimeAction(
                 label="Approve once",
@@ -744,6 +783,23 @@ class LocalCommandCenterRuntime:
                 current.totals.estimated_cost_usd = round(
                     current.totals.estimated_cost_usd + tokens[2], 4
                 )
+                if activity.category == "model_call":
+                    labels = {detail.label.casefold() for detail in activity.details}
+                    if "purpose" not in labels:
+                        purpose = (
+                            "Final incident response"
+                            if activity.summary
+                            and all(
+                                marker in activity.summary
+                                for marker in ("Finding:", "Evidence:", "Risk:", "Action:")
+                            )
+                            else "Agent reasoning and tool selection"
+                        )
+                        activity.details.append(ActivityDatum(label="Purpose", value=purpose))
+                    if "estimated cost" not in labels:
+                        activity.details.append(
+                            ActivityDatum(label="Estimated cost", value=f"{tokens[2]:.8f}")
+                        )
             if tool_call:
                 current.totals.tool_calls += 1
             active = next(

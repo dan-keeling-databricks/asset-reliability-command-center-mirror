@@ -117,6 +117,24 @@ def test_trigger_runs_generic_activity_stream_and_waits_for_approval() -> None:
             activity for activity in incident["activities"] if activity["status"] == "waiting"
         )
         assert waiting["action"]["endpoint"].endswith("/approve")
+        assert waiting["summary"] == (
+            "Approval required to call tool submit_work_order on asset_reliability_mcp."
+        )
+        assert {detail["label"] for detail in waiting["details"]} >= {
+            "Finding",
+            "Evidence",
+            "Risk",
+            "Action",
+            "Rationale",
+            "Planned window",
+        }
+        assert incident["inferences"]
+        assert all(item["total_tokens"] > 0 for item in incident["inferences"])
+        assert all(item["estimated_cost_usd"] > 0 for item in incident["inferences"])
+        assert incident["inference_pricing"] == {
+            "input_cost_per_million_usd": 3.0,
+            "output_cost_per_million_usd": 15.0,
+        }
         assert incident["conversation"] == []
         tool_titles = {
             activity["title"]
@@ -181,7 +199,7 @@ def test_approval_and_follow_up_complete_incident() -> None:
             "- **Finding:** Persistent drive-end bearing vibration excursion.",
             "- **Evidence:** Vibration reached 5.2 mm/s and continued rising.",
             "- **Risk:** 87% likelihood of failure before the next maintenance window.",
-            "- **Action:** Work order WO-10482 scheduled for the next available outage.",
+            "- **Action:** Work order WO-10482 scheduled for immediate maintenance.",
         ]
         terminal = conclusions[0]
         assert sum(activity["summary"] == terminal for activity in incident["activities"]) == 1
@@ -345,12 +363,20 @@ def test_mcp_source_accepts_configured_app_service_principal(monkeypatch) -> Non
         )
 
     assert response.status_code == 200
-    assert {tool["name"] for tool in response.json()["result"]["tools"]} == {
+    tools = response.json()["result"]["tools"]
+    assert {tool["name"] for tool in tools} == {
         "get_asset_telemetry",
         "assess_failure_risk",
         "prepare_work_order",
         "submit_work_order",
     }
+    submit_schema = next(tool for tool in tools if tool["name"] == "submit_work_order")[
+        "inputSchema"
+    ]
+    assert submit_schema["properties"]["planned_window"]["enum"] == [
+        "immediate maintenance"
+    ]
+    assert "rationale" in submit_schema["required"]
 
 
 def test_build_info_is_text_readable(monkeypatch) -> None:

@@ -44,6 +44,93 @@ from backend.settings import Settings, get_settings
 BUILD_INFO_PATH = Path(__file__).resolve().parents[1] / ".build-info.json"
 
 
+def _activity_number(activity: Any, label: str) -> float | None:
+    """Read one numeric activity datum without trusting display formatting."""
+
+    detail = next(
+        (item for item in activity.details if item.label.casefold() == label.casefold()), None
+    )
+    if not detail:
+        return None
+    try:
+        return float(detail.value.replace(",", "").replace("$", ""))
+    except ValueError:
+        return None
+
+
+def _inference_purpose(activity: Any, first_follow_up_at: Any) -> str:
+    purpose = next(
+        (
+            item.value
+            for item in activity.details
+            if item.label.casefold() == "purpose" and item.value.strip()
+        ),
+        None,
+    )
+    if purpose:
+        return purpose
+    if first_follow_up_at and activity.emitted_at >= first_follow_up_at:
+        return "Operator follow-up"
+    if activity.summary and all(
+        marker in activity.summary for marker in ("Finding:", "Evidence:", "Risk:", "Action:")
+    ):
+        return "Final incident response"
+    if activity.summary and activity.summary.startswith("Decision rationale:"):
+        return "Agent reasoning and tool selection"
+    return "Agent model execution"
+
+
+def _incident_payload(detail: Any, settings: Settings) -> dict[str, Any]:
+    """Enrich an incident with attributable per-inference usage and pricing metadata."""
+
+    first_follow_up_at = min(
+        (turn.created_at for turn in detail.conversation if turn.role == "operator"),
+        default=None,
+    )
+    inferences = []
+    for activity in detail.activities:
+        if activity.category != "model_call":
+            continue
+        input_tokens = int(_activity_number(activity, "Input tokens") or 0)
+        output_tokens = int(_activity_number(activity, "Output tokens") or 0)
+        recorded_cost = _activity_number(activity, "Estimated cost")
+        estimated_cost = recorded_cost
+        if estimated_cost is None:
+            estimated_cost = (
+                input_tokens * settings.model_input_cost_per_million
+                + output_tokens * settings.model_output_cost_per_million
+            ) / 1_000_000
+        trace_url = next(
+            (
+                item.value
+                for item in activity.details
+                if item.label.casefold() == "trace url"
+                and item.value.startswith(("https://", "http://"))
+            ),
+            None,
+        )
+        inferences.append(
+            {
+                "id": activity.id,
+                "model": activity.actor or settings.model_endpoint,
+                "purpose": _inference_purpose(activity, first_follow_up_at),
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": input_tokens + output_tokens,
+                "estimated_cost_usd": round(estimated_cost, 8),
+                "trace_url": trace_url,
+                "occurred_at": activity.emitted_at.isoformat(),
+            }
+        )
+    payload = detail.model_dump(mode="json")
+    payload["inferences"] = inferences
+    payload["inference_pricing"] = {
+        "input_cost_per_million_usd": settings.model_input_cost_per_million,
+        "output_cost_per_million_usd": settings.model_output_cost_per_million,
+    }
+    return payload
+
+
 def create_app(
     settings: Settings | None = None,
     repository: CommandCenterRepository | None = None,
@@ -209,7 +296,7 @@ def create_app(
         detail = await repository.incident(incident_id)
         if not detail:
             raise HTTPException(status_code=404, detail="Incident not found")
-        return detail.model_dump(mode="json")
+        return _incident_payload(detail, settings)
 
     @app.post(
         "/api/scenario/restart",

@@ -58,9 +58,24 @@ TOOLS: list[dict[str, Any]] = [
                 "asset_id": {"type": "string"},
                 "action": {"type": "string"},
                 "incident_id": {"type": "string"},
-                "planned_window": {"type": "string"},
+                "planned_window": {
+                    "type": "string",
+                    "enum": ["immediate maintenance"],
+                },
+                "rationale": {
+                    "type": "string",
+                    "description": (
+                        "One paragraph explaining the evidence and maintenance work required."
+                    ),
+                },
             },
-            "required": ["asset_id", "action", "incident_id", "planned_window"],
+            "required": [
+                "asset_id",
+                "action",
+                "incident_id",
+                "planned_window",
+                "rationale",
+            ],
         },
     },
 ]
@@ -195,6 +210,11 @@ class AssetReliabilityMCP:
             }
         if name == "submit_work_order":
             await self._pump(arguments["asset_id"])
+            if arguments["planned_window"] != "immediate maintenance":
+                raise ValueError("planned_window must be immediate maintenance")
+            rationale = " ".join(str(arguments["rationale"]).split())
+            if not rationale:
+                raise ValueError("rationale must be a non-empty paragraph")
             digest = hashlib.sha256(arguments["incident_id"].encode()).hexdigest()
             work_order_id = f"WO-{int(digest[:8], 16) % 100000:05d}"
             return await self.repository.create_work_order(
@@ -204,6 +224,7 @@ class AssetReliabilityMCP:
                     "asset_id": arguments["asset_id"],
                     "action": arguments["action"],
                     "planned_window": arguments["planned_window"],
+                    "rationale": rationale,
                     "part": "BRG-6312-C3",
                 },
             )
