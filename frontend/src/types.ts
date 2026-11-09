@@ -102,6 +102,18 @@ export type RuntimeActivity = {
   completed_at?: string | null;
 };
 
+export type InferenceSummary = {
+  id: string;
+  model: string;
+  purpose: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  estimated_cost_usd: number;
+  trace_url?: string | null;
+  occurred_at: string;
+};
+
 export type IncidentDetail = {
   id: string;
   scenario_id: string;
@@ -124,6 +136,11 @@ export type IncidentDetail = {
     output_tokens: number;
     estimated_cost_usd: number;
     tool_calls: number;
+  };
+  inferences: InferenceSummary[];
+  inference_pricing: {
+    input_cost_per_million_usd: number;
+    output_cost_per_million_usd: number;
   };
   created_at: string;
   updated_at: string;

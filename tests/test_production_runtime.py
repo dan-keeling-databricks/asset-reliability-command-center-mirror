@@ -18,6 +18,7 @@ from backend.production_runtime import (
     _canonical_terminal_response,
     _fallback_decision_rationale,
     _result_summary,
+    _submit_work_order_arguments,
     _valid_decision_rationale,
     _valid_terminal_response,
 )
@@ -89,7 +90,13 @@ async def test_unusable_rationale_falls_back_and_selected_tool_executes(
     )
     tool_call = {
         "id": "call-1",
-        "function": {"name": "submit_work_order", "arguments": "{}"},
+        "function": {
+            "name": "submit_work_order",
+            "arguments": (
+                '{"asset_id":"P-204","action":"Replace drive-end bearing",'
+                '"incident_id":"incident-1","planned_window":"next available window"}'
+            ),
+        },
     }
     correction_result = (
         corrected
@@ -144,7 +151,12 @@ async def test_unusable_rationale_falls_back_and_selected_tool_executes(
 
     await runtime._run_agent("incident-1")
 
-    runtime.gateway.call_tool.assert_awaited_once_with("submit_work_order", {}, "obo-token")
+    submitted = runtime.gateway.call_tool.await_args.args[1]
+    assert submitted["planned_window"] == "immediate maintenance"
+    assert submitted["rationale"] == (
+        "Replace drive-end bearing for P-204 because persistent drive-end vibration, "
+        "requiring immediate maintenance."
+    )
     runtime.repository.complete_incident.assert_awaited_once_with("incident-1", "WO-10482")
     runtime.repository.fail_incident.assert_not_awaited()
     rationale_activity = next(
@@ -480,6 +492,34 @@ def test_tool_selection_protocol_accepts_only_decision_rationale() -> None:
         "the threshold crossing needs telemetry and a risk estimate.",
         ["get_asset_telemetry", "assess_failure_risk"],
     )
+
+
+def test_submit_work_order_payload_is_immediate_and_has_one_paragraph_rationale() -> None:
+    incident = IncidentDetail(
+        scenario_id="scenario-1",
+        asset_id="P-204",
+        title="Bearing risk",
+        condition="Persistent drive-end vibration.",
+        trigger_prompt="Assess the alert.",
+    )
+
+    arguments = _submit_work_order_arguments(
+        {
+            "asset_id": "P-204",
+            "action": "Replace drive-end bearing",
+            "incident_id": "incident-1",
+            "planned_window": "next available maintenance window",
+            "rationale": "  Sustained vibration and temperature indicate failure risk.\n",
+        },
+        incident,
+        {"failure_probability_pct": 96, "evidence": "Persistent correlated vibration"},
+    )
+
+    assert arguments["planned_window"] == "immediate maintenance"
+    assert arguments["rationale"] == (
+        "Sustained vibration and temperature indicate failure risk."
+    )
+    assert "\n" not in arguments["rationale"]
 
 
 def test_terminal_protocol_requires_exactly_four_ordered_markdown_bullets() -> None:

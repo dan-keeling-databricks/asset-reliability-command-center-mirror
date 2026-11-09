@@ -196,7 +196,15 @@ class ProductionCommandCenterRuntime:
                 status="complete",
                 status_label="Completed",
                 summary=result.content,
-                details=[ActivityDatum(label="Output tokens", value=str(result.output_tokens))],
+                details=[
+                    ActivityDatum(label="Input tokens", value=str(result.input_tokens)),
+                    ActivityDatum(label="Output tokens", value=str(result.output_tokens)),
+                    ActivityDatum(label="Purpose", value="Operator follow-up"),
+                    ActivityDatum(
+                        label="Estimated cost",
+                        value=f"{self._model_cost(result.input_tokens, result.output_tokens):.8f}",
+                    ),
+                ],
                 started_at=started_at,
                 completed_at=completed_at,
             ),
@@ -411,6 +419,18 @@ class ProductionCommandCenterRuntime:
                         details=[
                             ActivityDatum(label="Input tokens", value=str(input_tokens)),
                             ActivityDatum(label="Output tokens", value=str(output_tokens)),
+                            ActivityDatum(
+                                label="Purpose",
+                                value=(
+                                    "Agent reasoning and tool selection"
+                                    if tool_calls
+                                    else "Final incident response"
+                                ),
+                            ),
+                            ActivityDatum(
+                                label="Estimated cost",
+                                value=f"{self._model_cost(input_tokens, output_tokens):.8f}",
+                            ),
                         ]
                         + (
                             [ActivityDatum(label="Model output", value=summary)]
@@ -468,12 +488,22 @@ class ProductionCommandCenterRuntime:
                         if isinstance(raw_arguments, str)
                         else raw_arguments
                     )
+                    if tool_name == "submit_work_order":
+                        arguments = _submit_work_order_arguments(
+                            arguments, incident, last_risk
+                        )
                     tool_started_at = utc_now()
                     try:
                         result = await self.gateway.call_tool(tool_name, arguments, identity.token)
                     except GatewayAsk as ask:
                         await self._pause_for_gateway(
-                            incident_id, tool_name, ask, started_at=tool_started_at
+                            incident_id,
+                            tool_name,
+                            ask,
+                            started_at=tool_started_at,
+                            incident=incident,
+                            arguments=arguments,
+                            risk=last_risk,
                         )
                         return
                     tool_completed_at = utc_now()
@@ -541,7 +571,15 @@ class ProductionCommandCenterRuntime:
         return None
 
     async def _pause_for_gateway(
-        self, incident_id: str, tool_name: str, ask: GatewayAsk, *, started_at: datetime
+        self,
+        incident_id: str,
+        tool_name: str,
+        ask: GatewayAsk,
+        *,
+        started_at: datetime,
+        incident: IncidentDetail | None = None,
+        arguments: dict[str, Any] | None = None,
+        risk: dict[str, Any] | None = None,
     ) -> None:
         """Persist Gateway ``ASK`` as a pure pause without executing the source tool."""
 
@@ -552,6 +590,45 @@ class ProductionCommandCenterRuntime:
             message=ask.elicitation.message,
             tool_name=tool_name,
         )
+        details = [
+            ActivityDatum(label="Decision", value="ASK"),
+            ActivityDatum(label="Execution", value="Not executed"),
+        ]
+        if tool_name == "submit_work_order" and incident and arguments:
+            probability = risk.get("failure_probability_pct") if risk else None
+            risk_band = risk.get("risk_band") if risk else None
+            risk_text = (
+                f"{probability}% probability of failure before the maintenance window"
+                + (f" ({risk_band} risk)." if risk_band else ".")
+                if probability is not None
+                else "The governed assessment requires immediate intervention."
+            )
+            details.extend(
+                [
+                    ActivityDatum(label="Finding", value=incident.condition.rstrip(".") + "."),
+                    ActivityDatum(
+                        label="Evidence",
+                        value=str(
+                            (risk or {}).get(
+                                "evidence", "The runtime assessment identified persistent risk."
+                            )
+                        ).rstrip(".")
+                        + ".",
+                    ),
+                    ActivityDatum(label="Risk", value=risk_text),
+                    ActivityDatum(
+                        label="Action",
+                        value=(
+                            f"{arguments['action'].rstrip('.')} during "
+                            f"{arguments['planned_window']}."
+                        ),
+                    ),
+                    ActivityDatum(label="Rationale", value=arguments["rationale"]),
+                    ActivityDatum(
+                        label="Planned window", value=arguments["planned_window"]
+                    ),
+                ]
+            )
         await self.repository.append_activity(
             incident_id,
             RuntimeActivity(
@@ -560,11 +637,10 @@ class ProductionCommandCenterRuntime:
                 actor=f"Unity Gateway · {tool_name}",
                 status="waiting",
                 status_label="ASK · Not executed",
-                summary=ask.elicitation.message,
-                details=[
-                    ActivityDatum(label="Decision", value="ASK"),
-                    ActivityDatum(label="Execution", value="Not executed"),
-                ],
+                summary=(
+                    f"Approval required to call tool {tool_name} on {MCP_ACTIVITY_ACTOR}."
+                ),
+                details=details,
                 action=RuntimeAction(
                     label="Review approval request",
                     kind="link",
@@ -665,7 +741,7 @@ class ProductionCommandCenterRuntime:
                 actor="Unity Gateway · submit_work_order",
                 status="complete",
                 status_label="APPROVED · ALLOW",
-                summary=f"{work_order_id} scheduled for the next available maintenance window.",
+                summary=f"{work_order_id} scheduled for immediate maintenance.",
                 details=[
                     ActivityDatum(label="Work order", value=str(work_order_id)),
                     ActivityDatum(label="Decision", value="ALLOW"),
@@ -721,6 +797,11 @@ class ProductionCommandCenterRuntime:
                 details=[
                     ActivityDatum(label="Input tokens", value=str(turn.input_tokens)),
                     ActivityDatum(label="Output tokens", value=str(turn.output_tokens)),
+                    ActivityDatum(label="Purpose", value="Final incident response"),
+                    ActivityDatum(
+                        label="Estimated cost",
+                        value=f"{self._model_cost(turn.input_tokens, turn.output_tokens):.8f}",
+                    ),
                 ],
                 started_at=started_at,
                 completed_at=completed_at,
@@ -784,6 +865,7 @@ class ProductionCommandCenterRuntime:
         completed_at = utc_now()
         corrected_content = str(corrected.message.get("content") or "")
         canonical = _canonical_terminal_response(corrected_content)
+        corrected_cost = self._model_cost(corrected.input_tokens, corrected.output_tokens)
         await self.repository.append_activity(
             incident_id,
             RuntimeActivity(
@@ -796,6 +878,11 @@ class ProductionCommandCenterRuntime:
                 details=[
                     ActivityDatum(label="Input tokens", value=str(corrected.input_tokens)),
                     ActivityDatum(label="Output tokens", value=str(corrected.output_tokens)),
+                    ActivityDatum(label="Purpose", value="Response format correction"),
+                    ActivityDatum(
+                        label="Estimated cost",
+                        value=f"{corrected_cost:.8f}",
+                    ),
                 ],
                 started_at=started_at,
                 completed_at=completed_at,
@@ -803,7 +890,7 @@ class ProductionCommandCenterRuntime:
             tokens=(
                 corrected.input_tokens,
                 corrected.output_tokens,
-                self._model_cost(corrected.input_tokens, corrected.output_tokens),
+                corrected_cost,
             ),
         )
         if not canonical:
@@ -826,6 +913,36 @@ def _structured(response: dict[str, Any]) -> dict[str, Any]:
             except json.JSONDecodeError:
                 return {"result": item["text"]}
     return result if isinstance(result, dict) else {"result": result}
+
+
+def _submit_work_order_arguments(
+    arguments: dict[str, Any], incident: IncidentDetail, risk: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Enforce the governed write contract and add a concise evidence-based rationale."""
+
+    required = ("asset_id", "action", "incident_id")
+    missing = [name for name in required if not str(arguments.get(name, "")).strip()]
+    if missing:
+        raise RuntimeError(
+            "submit_work_order omitted required arguments: " + ", ".join(missing)
+        )
+    normalized = dict(arguments)
+    normalized["planned_window"] = "immediate maintenance"
+    rationale = " ".join(str(normalized.get("rationale") or "").split())
+    if not rationale:
+        evidence = str((risk or {}).get("evidence") or incident.condition).rstrip(".")
+        probability = (risk or {}).get("failure_probability_pct")
+        risk_clause = (
+            f" with an assessed failure probability of {probability}%"
+            if probability
+            else ""
+        )
+        rationale = (
+            f"{str(normalized['action']).rstrip('.')} for {incident.asset_id} because "
+            f"{evidence.lower()}{risk_clause}, requiring immediate maintenance."
+        )
+    normalized["rationale"] = rationale
+    return normalized
 
 
 def _result_summary(data: dict[str, Any]) -> str:
