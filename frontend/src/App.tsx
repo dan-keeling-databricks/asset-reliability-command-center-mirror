@@ -502,7 +502,7 @@ function App() {
             ))}
           </div>
         </section>
-      ) : <ArchitectureView />}
+      ) : <ArchitectureView fontScale={fontScale} />}
 
       {selectedIncidentId && <div className="overlay" role="dialog" aria-modal="true" aria-label="Incident review">
         <div className="overlay-backdrop" onClick={() => setSelectedIncidentId(null)} />
@@ -540,10 +540,17 @@ function App() {
   );
 }
 
-function ArchitectureView() {
+function ArchitectureView({ fontScale }: { fontScale: number }) {
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const applyFontScale = useCallback(() => {
+    frameRef.current?.contentDocument?.documentElement.style.setProperty("--font-scale", String(fontScale / 100));
+  }, [fontScale]);
+
+  useEffect(() => applyFontScale(), [applyFontScale]);
+
   return <section className="architecture-page" aria-label="Solution architecture">
     <h2 className="architecture-title">A real-time Databricks architecture for detecting asset risk, governing autonomous response, and preserving operational evidence.</h2>
-    <iframe className="architecture-frame" src="/architecture-tab.html#embed" title="Asset Reliability Command Center architecture" />
+    <iframe ref={frameRef} className="architecture-frame" src="/architecture-tab.html#embed" title="Asset Reliability Command Center architecture" onLoad={applyFontScale} />
   </section>;
 }
 
