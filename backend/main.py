@@ -170,7 +170,7 @@ def create_app(
             await runtime.stop()
 
     app = FastAPI(
-        title="Asset Reliability Command Center",
+        title="Asset Reliability Command Centre",
         version="0.2.0",
         lifespan=lifespan,
     )
