@@ -42,6 +42,13 @@ from backend.runtime import (
 from backend.settings import Settings, get_settings
 
 BUILD_INFO_PATH = Path(__file__).resolve().parents[1] / ".build-info.json"
+HTML_CACHE_CONTROL = "no-store, max-age=0, must-revalidate"
+
+
+def _html_file_response(path: Path) -> FileResponse:
+    """Prevent mutable HTML entry points from surviving an App deployment in browser caches."""
+
+    return FileResponse(path, headers={"Cache-Control": HTML_CACHE_CONTROL})
 
 
 def _activity_number(activity: Any, label: str) -> float | None:
@@ -503,8 +510,10 @@ def create_app(
         async def spa(path: str) -> Response:
             candidate = dist / path
             if path and candidate.is_file():
+                if candidate.suffix.casefold() == ".html":
+                    return _html_file_response(candidate)
                 return FileResponse(candidate)
-            return FileResponse(dist / "index.html")
+            return _html_file_response(dist / "index.html")
     else:
 
         @app.get("/", include_in_schema=False)

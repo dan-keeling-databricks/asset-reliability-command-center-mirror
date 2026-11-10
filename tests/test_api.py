@@ -393,3 +393,12 @@ def test_build_info_uses_deployment_artifact_when_env_is_absent(monkeypatch, tmp
 
     with local_client() as client:
         assert client.get("/api/build-info").json() == {"git_commit": "def456"}
+
+
+def test_mutable_html_responses_disable_browser_caching(tmp_path) -> None:
+    html = tmp_path / "architecture-tab.html"
+    html.write_text("<main>architecture</main>", encoding="utf-8")
+
+    response = main_module._html_file_response(html)
+
+    assert response.headers["cache-control"] == "no-store, max-age=0, must-revalidate"

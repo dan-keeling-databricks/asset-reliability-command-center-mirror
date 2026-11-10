@@ -14,7 +14,11 @@ def test_reviewed_architecture_is_the_app_asset() -> None:
     assert app_html == review_html
     assert "lakehouse-evidence" not in app_html
     app_source = (ROOT / "frontend/src/App.tsx").read_text()
-    assert 'src="/architecture-tab.html#embed"' in app_source
+    assert "/architecture-tab.html?build=${encodeURIComponent(cacheKey)}#embed" in app_source
+    assert (
+        'jsonRequest<{ git_commit: string }>("/api/build-info", { cache: "no-store" })'
+        in app_source
+    )
     assert "<ArchitectureView fontScale={fontScale}" in app_source
     assert 'setProperty("--font-scale"' in app_source
 

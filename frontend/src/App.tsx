@@ -138,6 +138,10 @@ function latencyMetrics(snapshot: DashboardSnapshot): LatencyMetrics {
   };
 }
 
+function architectureAssetUrl(cacheKey: string) {
+  return `/architecture-tab.html?build=${encodeURIComponent(cacheKey)}#embed`;
+}
+
 function App() {
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
   const [incident, setIncident] = useState<IncidentDetail | null>(null);
@@ -542,15 +546,31 @@ function App() {
 
 function ArchitectureView({ fontScale }: { fontScale: number }) {
   const frameRef = useRef<HTMLIFrameElement>(null);
+  const [architectureSource, setArchitectureSource] = useState<string | null>(null);
   const applyFontScale = useCallback(() => {
     frameRef.current?.contentDocument?.documentElement.style.setProperty("--font-scale", String(fontScale / 100));
   }, [fontScale]);
+
+  useEffect(() => {
+    let disposed = false;
+    void jsonRequest<{ git_commit: string }>("/api/build-info", { cache: "no-store" })
+      .then((buildInfo) => {
+        const cacheKey = buildInfo.git_commit.trim() || `session-${Date.now()}`;
+        if (!disposed) setArchitectureSource(architectureAssetUrl(cacheKey));
+      })
+      .catch(() => {
+        if (!disposed) setArchitectureSource(architectureAssetUrl(`session-${Date.now()}`));
+      });
+    return () => { disposed = true; };
+  }, []);
 
   useEffect(() => applyFontScale(), [applyFontScale]);
 
   return <section className="architecture-page" aria-label="Solution architecture">
     <h2 className="architecture-title">A real-time Databricks architecture for detecting asset <strong>risk</strong>, governing autonomous <strong>response</strong>, and preserving operational <strong>evidence</strong>.</h2>
-    <iframe ref={frameRef} className="architecture-frame" src="/architecture-tab.html#embed" title="Asset Reliability Command Centre architecture" onLoad={applyFontScale} />
+    {architectureSource
+      ? <iframe ref={frameRef} className="architecture-frame" src={architectureSource} title="Asset Reliability Command Centre architecture" onLoad={applyFontScale} />
+      : <div className="architecture-frame architecture-frame-loading" role="status">Loading architecture…</div>}
   </section>;
 }
 
