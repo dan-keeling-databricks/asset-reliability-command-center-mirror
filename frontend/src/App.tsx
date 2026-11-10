@@ -541,32 +541,19 @@ function App() {
 }
 
 function ArchitectureView() {
-  return <section className="architecture-page" aria-labelledby="architecture-title">
-    <header className="architecture-header"><div><p>Solution architecture</p><h2 id="architecture-title">Real-time operations with durable audit</h2><span>Lakebase serves the live application while the Lakehouse retains long-term operational and AI evidence.</span></div><span className="architecture-badge">Databricks-native</span></header>
-    <div className="architecture-zones">
-      <section className="architecture-zone zone-data"><header><span>01</span><div><strong>Data foundation</strong><small>Operational state and durable history</small></div></header><div className="architecture-flow architecture-data-flow"><ArchitectureNode icon="⌁" title="Event broker" subtitle="Continuous pump telemetry" tone="coral" /><ArchitectureArrow label="stream" /><ArchitectureNode icon="⚡" title="Spark Structured Streaming" subtitle="Real-Time Mode" tone="amber" /><ArchitectureArrow label="write" /><ArchitectureNode icon="LB" title="Lakebase" subtitle="Live telemetry, incidents & work orders" tone="blue" /><ArchitectureArrow label="Lakebase Change Data Feed" wide /><ArchitectureNode icon="LH" title="Lakehouse" subtitle="Long-term audit & observability" tone="green" /></div><div className="audit-streams"><span>Operational change history</span><span>LLM traces</span><span>MCP & tool traces</span><span>Policy decisions</span><span>Approval receipts</span><span>Application audit events</span></div></section>
-      <section className="architecture-zone zone-app"><header><span>02</span><div><strong>Application</strong><small>Operator experience</small></div></header><div className="architecture-app-content"><ArchitectureNode icon="▣" title="Databricks App" subtitle="Asset Reliability Command Center" tone="coral" /><div className="architecture-app-copy"><strong>Live fleet and governed incident response</strong><span>Reads current operational state from Lakebase and presents only runtime-emitted agent activity.</span></div></div><div className="architecture-vertical-link"><span>Lakebase-backed operational API</span></div></section>
-      <section className="architecture-zone zone-ai"><header><span>03</span><div><strong>AI & governance</strong><small>Governed autonomous maintenance</small></div></header><div className="agent-shell"><div className="agent-title"><span>AI</span><div><strong>Emergency Maintenance Agent</strong><small>Evidence-led response with human approval</small></div></div><div className="agent-gateway"><ArchitectureNode icon="UG" title="Unity Gateway" subtitle="Identity, policy & approval" tone="violet" /><ArchitectureArrow label="govern" /></div><div className="agent-capabilities"><ArchitectureNode icon="◇" title="Governed Skill" subtitle="Response procedure" tone="amber" /><ArchitectureNode icon="✦" title="Foundation Model" subtitle="Reasoning & response" tone="violet" /><ArchitectureNode icon="⇄" title="MCP tools" subtitle="Lakebase-backed capabilities" tone="blue" /></div></div><div className="trace-route"><span>LLM and MCP traces</span><i>→</i><strong>Lakehouse</strong></div></section>
-    </div>
+  return <section className="architecture-page" aria-label="Solution architecture">
+    <iframe className="architecture-frame" src="/architecture-tab.html#embed" title="Asset Reliability Command Center architecture" />
   </section>;
-}
-
-function ArchitectureNode({ icon, title, subtitle, tone }: { icon: string; title: string; subtitle: string; tone: string }) {
-  return <div className={`architecture-node node-${tone}`}><span>{icon}</span><div><strong>{title}</strong><small>{subtitle}</small></div></div>;
-}
-
-function ArchitectureArrow({ label, wide = false }: { label: string; wide?: boolean }) {
-  return <div className={`architecture-arrow ${wide ? "architecture-arrow-wide" : ""}`}><span>{label}</span><i>→</i></div>;
 }
 
 function CostView({ incident }: { incident: IncidentDetail }) {
   const totalCost = incident.inferences.reduce((sum, inference) => sum + inference.estimated_cost_usd, 0);
   const totalTokens = incident.inferences.reduce((sum, inference) => sum + inference.total_tokens, 0);
+  const modelsUsed = Array.from(new Set(incident.inferences.map((inference) => inference.model)));
   return <div className="cost-view">
-    <section className="cost-summary"><div><span>Estimated inference cost</span><strong>${totalCost.toFixed(6)}</strong></div><div><span>LLM calls</span><strong>{incident.inferences.length}</strong></div><div><span>Total tokens</span><strong>{totalTokens.toLocaleString()}</strong></div><p>Estimate based on ${incident.inference_pricing.input_cost_per_million_usd.toFixed(2)} input and ${incident.inference_pricing.output_cost_per_million_usd.toFixed(2)} output per million tokens.</p></section>
-    <div className="cost-table-wrap"><table className="cost-table"><thead><tr><th>Time</th><th>Purpose</th><th>Model</th><th>Input</th><th>Output</th><th>Total</th><th>Estimated cost</th><th>Trace</th></tr></thead><tbody>{incident.inferences.map((inference) => <tr key={inference.id}><td>{timeLabel(inference.occurred_at)}</td><td>{inference.purpose}</td><td><code>{inference.model}</code></td><td>{inference.input_tokens.toLocaleString()}</td><td>{inference.output_tokens.toLocaleString()}</td><td>{inference.total_tokens.toLocaleString()}</td><td>${inference.estimated_cost_usd.toFixed(6)}</td><td>{inference.trace_url ? <a href={inference.trace_url} target="_blank" rel="noopener noreferrer">Unity Gateway trace <span aria-hidden="true">↗</span></a> : <span className="trace-unavailable">Not available</span>}</td></tr>)}</tbody></table></div>
+    <section className="cost-summary"><div><span>Estimated inference cost</span><strong>${totalCost.toFixed(6)}</strong></div><div><span>LLM calls</span><strong>{incident.inferences.length}</strong></div><div><span>Total tokens</span><strong>{totalTokens.toLocaleString()}</strong></div><div><span>Model used</span><strong className="cost-models">{modelsUsed.length ? modelsUsed.join(", ") : "—"}</strong></div></section>
+    <div className="cost-table-wrap"><table className="cost-table"><thead><tr><th>Time</th><th>Purpose</th><th>Model</th><th>Input</th><th>Output</th><th>Total</th><th>Estimated cost</th><th>Trace</th></tr></thead><tbody>{incident.inferences.map((inference) => <tr key={inference.id}><td>{timeLabel(inference.occurred_at)}</td><td>{inference.purpose}</td><td><code>{inference.model}</code></td><td>{inference.input_tokens.toLocaleString()}</td><td>{inference.output_tokens.toLocaleString()}</td><td>{inference.total_tokens.toLocaleString()}</td><td>${inference.estimated_cost_usd.toFixed(6)}</td><td><a href={inference.trace_url ?? `#mlflow-trace-${inference.id}`} target={inference.trace_url ? "_blank" : undefined} rel={inference.trace_url ? "noopener noreferrer" : undefined} onClick={inference.trace_url ? undefined : (event) => event.preventDefault()}>MLflow trace <span className="trace-link-icon" aria-hidden="true">↗</span></a></td></tr>)}</tbody></table></div>
     {!incident.inferences.length && <div className="timeline-empty">No LLM inference has been recorded for this incident.</div>}
-    <p className="cost-note">Token counts come from runtime model responses. Trace links appear only when the platform returns a real trace URL.</p>
   </div>;
 }
 

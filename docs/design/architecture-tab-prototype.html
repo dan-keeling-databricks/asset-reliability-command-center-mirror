@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Asset Reliability Command Center — Architecture Prototype</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #536179;
+      --line: #c9d5e5;
+      --blue: #1c86c8;
+      --blue-soft: #f2f8fe;
+      --green: #169264;
+      --green-soft: #f2fbf7;
+      --amber: #cf8012;
+      --amber-soft: #fff9ef;
+      --violet: #695bd1;
+      --violet-soft: #f7f5ff;
+      --shadow: 0 10px 24px rgba(28, 41, 61, .14);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      min-width: 1120px;
+      margin: 0;
+      color: var(--ink);
+      background: #f7f9fc;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body:target .review-header { display: none; }
+    body:target .review-shell { margin: 0 auto; }
+
+    .review-shell {
+      width: 1280px;
+      margin: 28px auto;
+    }
+
+    .review-header {
+      margin: 0 0 12px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .review-header p {
+      margin: 0 0 4px;
+      color: #6a7486;
+      font: 700 11px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+
+    .review-header h1 {
+      margin: 0;
+      font-size: 22px;
+      letter-spacing: -.025em;
+    }
+
+    .review-header span {
+      color: #7a8495;
+      font-size: 12px;
+    }
+
+    .diagram {
+      position: relative;
+      width: 1280px;
+      height: 620px;
+      display: grid;
+      grid-template-columns: 760px 498px;
+      grid-template-rows: 322px 276px;
+      gap: 22px;
+      padding: 0;
+    }
+
+    .zone {
+      position: relative;
+      z-index: 1;
+      overflow: hidden;
+      border: 1.5px dashed var(--line);
+      border-radius: 20px;
+      background: rgba(255, 255, 255, .72);
+    }
+
+    .zone-data { grid-row: 1 / 3; }
+    .zone-app { grid-column: 2; grid-row: 1; }
+    .zone-ai { grid-column: 2; grid-row: 2; }
+
+    .zone-label {
+      position: absolute;
+      z-index: 5;
+      top: 17px;
+      left: 23px;
+      margin: 0;
+      color: #596983;
+      font: 700 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+
+    .node {
+      position: absolute;
+      z-index: 4;
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      min-width: 190px;
+      min-height: 92px;
+      padding: 17px 18px;
+      border: 1.5px solid;
+      border-radius: 16px;
+      background: #fff;
+      box-shadow: var(--shadow);
+    }
+
+    .node h2,
+    .node h3,
+    .node p { margin: 0; }
+
+    .node h2,
+    .node h3 {
+      font-size: 16px;
+      line-height: 1.2;
+      letter-spacing: -.012em;
+    }
+
+    .node p {
+      margin-top: 5px;
+      color: var(--muted);
+      font: 500 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .icon {
+      width: 39px;
+      height: 39px;
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+    }
+
+    .icon svg {
+      width: 21px;
+      height: 21px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 1.9;
+    }
+
+    .tone-blue { border-color: #4a9dde; background: var(--blue-soft); }
+    .tone-blue .icon { color: var(--blue); background: #e8f4ff; }
+    .tone-amber { border-color: #d99b46; background: var(--amber-soft); }
+    .tone-amber .icon { color: var(--amber); background: #fff2d9; }
+    .tone-green { border-color: #48a985; background: var(--green-soft); }
+    .tone-green .icon { color: var(--green); background: #e2f5ed; }
+    .tone-violet { border-color: #9d91e4; background: var(--violet-soft); }
+    .tone-violet .icon { color: var(--violet); background: #edeaff; }
+
+    .broker,
+    .streaming,
+    .lakebase {
+      top: 168px;
+      min-height: 114px;
+    }
+
+    .broker { left: 31px; width: 205px; }
+    .streaming { left: 282px; width: 220px; }
+    .lakebase { left: 543px; width: 190px; }
+    .lakehouse { left: 543px; top: 400px; width: 190px; min-height: 120px; }
+
+    .app-frame {
+      position: absolute;
+      z-index: 4;
+      inset: 57px 27px 43px;
+      padding: 17px;
+      border: 1.5px solid #3d94ca;
+      border-radius: 18px;
+      background: #f6fbff;
+      box-shadow: var(--shadow);
+    }
+
+    .app-frame-inner {
+      height: 100%;
+      padding: 17px;
+      border: 1px solid #a9cbe2;
+      border-radius: 14px;
+      background: #eef6fc;
+    }
+
+    .app-kicker {
+      color: #5d6e86;
+      font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .app-frame h2 {
+      margin: 7px 0 13px;
+      font-size: 18px;
+      letter-spacing: -.02em;
+    }
+
+    .app-modules {
+      display: grid;
+      grid-template-columns: 1fr 1.25fr;
+      gap: 11px;
+    }
+
+    .app-module {
+      min-height: 76px;
+      padding: 13px;
+      display: grid;
+      grid-template-columns: 25px minmax(0, 1fr);
+      align-items: center;
+      gap: 9px;
+      border: 1px solid #cedbea;
+      border-radius: 11px;
+      background: rgba(255, 255, 255, .72);
+    }
+
+    .app-module svg {
+      width: 22px;
+      height: 22px;
+      color: var(--blue);
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 1.8;
+    }
+
+    .app-module-agent svg { color: var(--violet); }
+    .app-module strong { display: block; font-size: 14px; }
+    .app-module span { display: block; margin-top: 3px; color: var(--muted); font: 500 11px/1.25 ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+    .gateway {
+      left: 57px;
+      top: 49px;
+      width: 386px;
+      min-height: 76px;
+      padding-top: 13px;
+      padding-bottom: 13px;
+    }
+
+    .capability {
+      top: 168px;
+      width: 132px;
+      min-width: 0;
+      min-height: 72px;
+      padding: 12px;
+      gap: 9px;
+      border-radius: 14px;
+    }
+
+    .capability .icon {
+      width: 29px;
+      height: 29px;
+    }
+
+    .capability .icon svg { width: 18px; height: 18px; }
+    .capability h3 { font-size: 14px; }
+    .capability p { margin-top: 2px; font-size: 10px; }
+    .capability-mcp { left: 29px; }
+    .capability-llm { left: 183px; }
+    .capability-skill { left: 337px; }
+
+    .connectors {
+      position: absolute;
+      z-index: 2;
+      inset: 0;
+      width: 1280px;
+      height: 620px;
+      overflow: visible;
+      pointer-events: none;
+    }
+
+    .flow {
+      fill: none;
+      stroke-width: 2.1;
+      stroke-dasharray: 7 6;
+    }
+
+    .flow-blue { stroke: #287fca; marker-end: url(#arrow-blue); }
+    .flow-green { stroke: #16895e; marker-end: url(#arrow-green); }
+    .flow-violet { stroke: #6557cf; marker-end: url(#arrow-violet); }
+
+    .connector-label rect {
+      fill: rgba(255, 255, 255, .96);
+      rx: 6;
+    }
+
+    .connector-label text {
+      fill: #536179;
+      font: 500 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: .01em;
+    }
+
+    .connector-label.green text { fill: #39715c; }
+    .connector-label.violet text { fill: #5f55a5; }
+  </style>
+</head>
+<body id="embed">
+  <main class="review-shell">
+    <header class="review-header">
+      <div>
+        <p>Architecture tab prototype</p>
+        <h1>Asset Reliability Command Center</h1>
+      </div>
+      <span>Standalone HTML for design review — not yet embedded in the App</span>
+    </header>
+
+    <section class="diagram" aria-label="Asset Reliability Command Center architecture">
+      <svg width="0" height="0" aria-hidden="true">
+        <defs>
+          <symbol id="i-broker" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4a13 13 0 0 1 0 16M12 4a13 13 0 0 0 0 16"/></symbol>
+          <symbol id="i-bolt" viewBox="0 0 24 24"><path d="m13 2-8 12h7l-1 8 8-12h-7z"/></symbol>
+          <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="7" ry="3"/><path d="M5 5v6c0 1.7 3.1 3 7 3s7-1.3 7-3V5M5 11v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></symbol>
+          <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 8 4-8 4-8-4zM4 12l8 4 8-4M4 17l8 4 8-4"/></symbol>
+          <symbol id="i-window" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/></symbol>
+          <symbol id="i-agent" viewBox="0 0 24 24"><path d="m12 2 1.7 5.3L19 9l-5.3 1.7L12 16l-1.7-5.3L5 9l5.3-1.7zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></symbol>
+          <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.6 2.8 8 7 10 4.2-2 7-5.4 7-10V6z"/><path d="m9 12 2 2 4-5"/></symbol>
+          <symbol id="i-tool" viewBox="0 0 24 24"><path d="M14 6h6M17 3v6M4 8h8v8H4zM8 16v5M5 21h6"/></symbol>
+          <symbol id="i-message" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/></symbol>
+          <symbol id="i-skill" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 7h6M9 11h6M9 15h4"/></symbol>
+        </defs>
+      </svg>
+
+      <section class="zone zone-data">
+        <h2 class="zone-label">Data foundation</h2>
+
+        <article class="node tone-blue broker">
+          <span class="icon"><svg aria-hidden="true"><use href="#i-broker"/></svg></span>
+          <div><h3>Event Broker</h3><p>pump telemetry</p></div>
+        </article>
+
+        <article class="node tone-amber streaming">
+          <span class="icon"><svg aria-hidden="true"><use href="#i-bolt"/></svg></span>
+          <div><h3>Spark Structured Streaming</h3><p>Real-Time Mode</p></div>
+        </article>
+
+        <article class="node tone-green lakebase">
+          <span class="icon"><svg aria-hidden="true"><use href="#i-database"/></svg></span>
+          <div><h3>Lakebase</h3><p>operational data</p></div>
+        </article>
+
+        <article class="node tone-green lakehouse">
+          <span class="icon"><svg aria-hidden="true"><use href="#i-layers"/></svg></span>
+          <div><h3>Lakehouse</h3><p>long-term audit &amp; logging</p></div>
+        </article>
+
+      </section>
+
+      <section class="zone zone-app">
+        <h2 class="zone-label">Application</h2>
+        <article class="app-frame">
+          <div class="app-frame-inner">
+            <span class="app-kicker">Databricks App</span>
+            <h2>Asset Reliability Command Center</h2>
+            <div class="app-modules">
+              <div class="app-module">
+                <svg aria-hidden="true"><use href="#i-window"/></svg>
+                <div><strong>Live Operations</strong><span>fleet &amp; incidents</span></div>
+              </div>
+              <div class="app-module app-module-agent">
+                <svg aria-hidden="true"><use href="#i-agent"/></svg>
+                <div><strong>Emergency Maintenance Agent</strong><span>autonomous response</span></div>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="zone zone-ai">
+        <h2 class="zone-label">AI &amp; governance</h2>
+
+        <article class="node tone-violet gateway">
+          <span class="icon"><svg aria-hidden="true"><use href="#i-shield"/></svg></span>
+          <div><h3>Unity Gateway</h3><p>access, policy &amp; human approval</p></div>
+        </article>
+
+        <article class="node tone-violet capability capability-mcp">
+          <span class="icon"><svg aria-hidden="true"><use href="#i-tool"/></svg></span>
+          <div><h3>MCP</h3><p>tools</p></div>
+        </article>
+
+        <article class="node tone-violet capability capability-llm">
+          <span class="icon"><svg aria-hidden="true"><use href="#i-message"/></svg></span>
+          <div><h3>LLM</h3><p>model</p></div>
+        </article>
+
+        <article class="node tone-violet capability capability-skill">
+          <span class="icon"><svg aria-hidden="true"><use href="#i-skill"/></svg></span>
+          <div><h3>Skill</h3><p>procedure</p></div>
+        </article>
+      </section>
+
+      <svg class="connectors" viewBox="0 0 1280 620" aria-hidden="true">
+        <defs>
+          <marker id="arrow-blue" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#287fca"/></marker>
+          <marker id="arrow-green" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#16895e"/></marker>
+          <marker id="arrow-violet" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#6557cf"/></marker>
+        </defs>
+
+        <path class="flow flow-blue" d="M236 225 H282"/>
+        <path class="flow flow-blue" d="M502 225 H543"/>
+        <path class="flow flow-green" d="M733 225 H809"/>
+        <path class="flow flow-green" d="M638 282 V400"/>
+        <path class="flow flow-violet" d="M1031 279 V393"/>
+        <path class="flow flow-violet" d="M1032 469 V490 H877 V512"/>
+        <path class="flow flow-violet" d="M1032 469 V512"/>
+        <path class="flow flow-violet" d="M1032 490 H1185 V512"/>
+        <path class="flow flow-violet" d="M839 431 H770 V460 H733"/>
+
+        <g class="connector-label green">
+          <rect x="453" y="328" width="177" height="27"/>
+          <text x="464" y="346">Lakebase Change Data Feed</text>
+        </g>
+        <g class="connector-label green">
+          <rect x="742" y="193" width="58" height="27"/>
+          <text x="751" y="211">App API</text>
+        </g>
+        <g class="connector-label violet">
+          <rect x="1044" y="327" width="116" height="27"/>
+          <text x="1055" y="345">governed access</text>
+        </g>
+      </svg>
+    </section>
+  </main>
+</body>
+</html>
