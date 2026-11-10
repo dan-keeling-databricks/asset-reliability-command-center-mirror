@@ -231,7 +231,7 @@ function App() {
           }
         };
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "Unable to load command center");
+        setError(caught instanceof Error ? caught.message : "Unable to load command centre");
       }
     })();
     return () => {
@@ -441,7 +441,7 @@ function App() {
   return (
     <main className="command-center">
       <header className="command-header">
-        <div className="brand-lockup"><div className="brand-glyph"><span /></div><div><p>Databricks Intelligence Platform</p><h1>Asset Reliability Command Center</h1></div></div>
+        <div className="brand-lockup"><div className="brand-glyph"><span /></div><div><p>Databricks Intelligence Platform</p><h1>Asset Reliability Command Centre</h1></div></div>
         <div className="latency-panel">
           <div className={`connection-dot connection-${snapshot.platform.connection}`} aria-label={snapshot.platform.connection} />
           <div><span>Kafka → Lakebase</span><strong>{latencies.kafka_to_lakebase_latency_ms} ms</strong></div>
@@ -460,7 +460,7 @@ function App() {
       {error && <div className="global-error">{error}</div>}
       {liveUpdateWarning && <div className="global-error" role="status">Live updates are reconnecting</div>}
 
-      <nav className="primary-tabs" aria-label="Command center views">
+      <nav className="primary-tabs" aria-label="Command centre views">
         <button className={activeView === "fleet" ? "active" : ""} onClick={() => setActiveView("fleet")}>Live fleet</button>
         <button className={activeView === "history" ? "active" : ""} onClick={() => setActiveView("history")}>History <span>{snapshot.alerts.length}</span></button>
         <button className={activeView === "architecture" ? "active" : ""} onClick={() => setActiveView("architecture")}>Architecture</button>
@@ -468,7 +468,7 @@ function App() {
 
       {activeView === "fleet" ? (
         <section className="fleet-section">
-          <div className="section-heading"><div><p>Live fleet</p><h2>Comparable pump assets</h2></div><span className="streaming-label"><i /> Streaming now</span></div>
+          <div className="section-heading"><div><p>Live fleet</p><h2>Circulatory pump assets</h2></div><span className="streaming-label"><i /> Streaming now</span></div>
           <div className="pump-grid">
             {snapshot.pumps.map((pump) => {
               const active = activeByAsset.get(pump.asset_id);
@@ -549,8 +549,8 @@ function ArchitectureView({ fontScale }: { fontScale: number }) {
   useEffect(() => applyFontScale(), [applyFontScale]);
 
   return <section className="architecture-page" aria-label="Solution architecture">
-    <h2 className="architecture-title">A real-time Databricks architecture for detecting asset risk, governing autonomous response, and preserving operational evidence.</h2>
-    <iframe ref={frameRef} className="architecture-frame" src="/architecture-tab.html#embed" title="Asset Reliability Command Center architecture" onLoad={applyFontScale} />
+    <h2 className="architecture-title">A real-time Databricks architecture for detecting asset <strong>risk</strong>, governing autonomous <strong>response</strong>, and preserving operational <strong>evidence</strong>.</h2>
+    <iframe ref={frameRef} className="architecture-frame" src="/architecture-tab.html#embed" title="Asset Reliability Command Centre architecture" onLoad={applyFontScale} />
   </section>;
 }
 
