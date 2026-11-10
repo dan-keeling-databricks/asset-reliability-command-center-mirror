@@ -19,6 +19,7 @@
       --violet: #695bd1;
       --violet-soft: #f7f5ff;
       --shadow: 0 10px 24px rgba(28, 41, 61, .14);
+      --font-scale: 1;
     }
 
     * { box-sizing: border-box; }
@@ -97,7 +98,7 @@
       left: 23px;
       margin: 0;
       color: #596983;
-      font: 700 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      font: 700 calc(13px * var(--font-scale))/1 ui-monospace, SFMono-Regular, Menlo, monospace;
       letter-spacing: .14em;
       text-transform: uppercase;
     }
@@ -123,7 +124,7 @@
 
     .node h2,
     .node h3 {
-      font-size: 16px;
+      font-size: calc(16px * var(--font-scale));
       line-height: 1.2;
       letter-spacing: -.012em;
     }
@@ -131,7 +132,7 @@
     .node p {
       margin-top: 5px;
       color: var(--muted);
-      font: 500 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+      font: 500 calc(12px * var(--font-scale))/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
     }
 
     .icon {
@@ -165,14 +166,14 @@
     .broker,
     .streaming,
     .lakebase {
-      top: 168px;
-      min-height: 114px;
+      top: 155px;
+      height: 140px;
     }
 
     .broker { left: 31px; width: 205px; }
     .streaming { left: 282px; width: 220px; }
     .lakebase { left: 543px; width: 190px; }
-    .lakehouse { left: 543px; top: 400px; width: 190px; min-height: 120px; }
+    .lakehouse { left: 543px; top: 400px; width: 190px; height: 130px; }
 
     .app-frame {
       position: absolute;
@@ -195,14 +196,14 @@
 
     .app-kicker {
       color: #5d6e86;
-      font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      font: 700 calc(11px * var(--font-scale))/1 ui-monospace, SFMono-Regular, Menlo, monospace;
       letter-spacing: .12em;
       text-transform: uppercase;
     }
 
     .app-frame h2 {
       margin: 7px 0 13px;
-      font-size: 18px;
+      font-size: clamp(18px, calc(18px * var(--font-scale)), 21px);
       letter-spacing: -.02em;
     }
 
@@ -213,8 +214,8 @@
     }
 
     .app-module {
-      min-height: 76px;
-      padding: 13px;
+      min-height: 88px;
+      padding: 11px 13px;
       display: grid;
       grid-template-columns: 25px minmax(0, 1fr);
       align-items: center;
@@ -236,14 +237,14 @@
     }
 
     .app-module-agent svg { color: var(--violet); }
-    .app-module strong { display: block; font-size: 14px; }
-    .app-module span { display: block; margin-top: 3px; color: var(--muted); font: 500 11px/1.25 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .app-module strong { display: block; font-size: clamp(14px, calc(14px * var(--font-scale)), 16.5px); line-height: 1.1; }
+    .app-module span { display: block; margin-top: 3px; color: var(--muted); font: 500 calc(11px * var(--font-scale))/1.25 ui-monospace, SFMono-Regular, Menlo, monospace; }
 
     .gateway {
       left: 57px;
       top: 49px;
       width: 386px;
-      min-height: 76px;
+      min-height: 88px;
       padding-top: 13px;
       padding-bottom: 13px;
     }
@@ -264,8 +265,8 @@
     }
 
     .capability .icon svg { width: 18px; height: 18px; }
-    .capability h3 { font-size: 14px; }
-    .capability p { margin-top: 2px; font-size: 10px; }
+    .capability h3 { font-size: calc(14px * var(--font-scale)); }
+    .capability p { margin-top: 2px; font-size: calc(10px * var(--font-scale)); }
     .capability-mcp { left: 29px; }
     .capability-llm { left: 183px; }
     .capability-skill { left: 337px; }
@@ -297,7 +298,7 @@
 
     .connector-label text {
       fill: #536179;
-      font: 500 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+      font: 500 clamp(11px, calc(11px * var(--font-scale)), 12.5px) ui-monospace, SFMono-Regular, Menlo, monospace;
       letter-spacing: .01em;
     }
 
@@ -410,16 +411,16 @@
         <path class="flow flow-blue" d="M236 225 H282"/>
         <path class="flow flow-blue" d="M502 225 H543"/>
         <path class="flow flow-green" d="M733 225 H809"/>
-        <path class="flow flow-green" d="M638 282 V400"/>
+        <path class="flow flow-green" d="M638 295 V400"/>
         <path class="flow flow-violet" d="M1031 279 V393"/>
-        <path class="flow flow-violet" d="M1032 469 V490 H877 V512"/>
-        <path class="flow flow-violet" d="M1032 469 V512"/>
-        <path class="flow flow-violet" d="M1032 490 H1185 V512"/>
-        <path class="flow flow-violet" d="M839 431 H770 V460 H733"/>
+        <path class="flow flow-violet" d="M1032 481 V496 H877 V512"/>
+        <path class="flow flow-violet" d="M1032 481 V512"/>
+        <path class="flow flow-violet" d="M1032 496 H1185 V512"/>
+        <path class="flow flow-violet" d="M839 437 H770 V465 H733"/>
 
         <g class="connector-label green">
-          <rect x="453" y="328" width="177" height="27"/>
-          <text x="464" y="346">Lakebase Change Data Feed</text>
+          <rect x="425" y="328" width="205" height="27"/>
+          <text x="436" y="346">Lakebase Change Data Feed</text>
         </g>
         <g class="connector-label green">
           <rect x="742" y="193" width="58" height="27"/>
