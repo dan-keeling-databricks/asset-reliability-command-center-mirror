@@ -17,3 +17,14 @@ def test_reviewed_architecture_is_the_app_asset() -> None:
     assert 'src="/architecture-tab.html#embed"' in app_source
     assert "<ArchitectureView fontScale={fontScale}" in app_source
     assert 'setProperty("--font-scale"' in app_source
+
+
+def test_submit_work_order_card_hides_redundant_details() -> None:
+    """Keep audit details in the API while omitting reviewed card repetition."""
+
+    app_source = (ROOT / "frontend/src/App.tsx").read_text()
+    styles = (ROOT / "frontend/src/styles.css").read_text()
+
+    assert '=== "submit_work_order"' in app_source
+    assert '...(isSubmitWorkOrder ? ["rationale", "planned window"] : [])' in app_source
+    assert ".approval-context + .gateway-policy { margin-top: 14px; }" in styles
