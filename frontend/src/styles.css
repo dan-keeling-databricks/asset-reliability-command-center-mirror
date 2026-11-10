@@ -305,6 +305,7 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .approval-context > div { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 10px; padding: 6px 0; border-top: 1px solid #e7e3f8; }
 .approval-context > div > span { color: #70698d; font-weight: 700; }
 .approval-context p { margin: 0; color: #414148; line-height: 1.45; }
+.approval-context + .gateway-policy { margin-top: 14px; }
 .gateway-policy .approval-record-unavailable { grid-column: 1 / -1; color: #77777e; font-style: italic; }
 .event-content dl .mcp-tool-detail { grid-column: 1 / -1; display: block; }
 .mcp-tool-detail dt { margin-bottom: 6px; }

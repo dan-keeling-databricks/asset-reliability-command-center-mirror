@@ -671,9 +671,12 @@ function ActivityCard({ activity, completion, busy, runAction, compact = false, 
   const runtimeLabel = { running: "Running", complete: "Completed", waiting: "Waiting", failed: "Failed", info: "Information" }[displayedActivity.status];
   const contextLabels = new Set(["finding", "evidence", "risk", "action"]);
   const approvalContext = displayedActivity.details.filter((detail) => contextLabels.has(detail.label.toLowerCase()));
+  const isSubmitWorkOrder = displayedActivity.category === "tool_call"
+    && displayedActivity.title.trim().toLowerCase().replace(/[\s-]+/g, "_") === "submit_work_order";
   const details = displayedActivity.details.filter((detail) => ![
     "decision", "execution", "input tokens", "output tokens", "model output", "purpose",
-    "estimated cost", "trace url", ...contextLabels
+    "estimated cost", "trace url", ...contextLabels,
+    ...(isSubmitWorkOrder ? ["rationale", "planned window"] : [])
   ].includes(detail.label.toLowerCase()));
   const tokenTotal = displayedActivity.category === "model_call" ? displayedActivity.details.filter((detail) => /tokens/i.test(detail.label)).reduce((sum, detail) => sum + Number(detail.value.replaceAll(",", "")), 0) : 0;
   const presentation = activityPresentation(displayedActivity);
