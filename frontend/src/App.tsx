@@ -542,6 +542,7 @@ function App() {
 
 function ArchitectureView() {
   return <section className="architecture-page" aria-label="Solution architecture">
+    <h2 className="architecture-title">A real-time Databricks architecture for detecting asset risk, governing autonomous response, and preserving operational evidence.</h2>
     <iframe className="architecture-frame" src="/architecture-tab.html#embed" title="Asset Reliability Command Center architecture" />
   </section>;
 }
