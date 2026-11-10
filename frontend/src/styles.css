@@ -343,52 +343,8 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 }
 
 /* Architecture ----------------------------------------------------------- */
-.architecture-page { max-width: 1540px; margin: 0 auto; border: 1px solid var(--line); border-radius: 12px; background: #fff; box-shadow: 0 5px 20px rgba(30, 30, 27, .035); overflow: hidden; }
-.architecture-header { min-height: 86px; padding: 17px 20px; display: flex; align-items: center; justify-content: space-between; gap: 24px; border-bottom: 1px solid #e4e4df; }
-.architecture-header p { margin: 0; color: #717178; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
-.architecture-header h2 { margin: 3px 0 4px; }
-.architecture-header div > span { color: var(--muted); }
-.architecture-badge { padding: 6px 9px; border-radius: 999px; color: #5748ad; background: var(--violet-soft); font-weight: 700; white-space: nowrap; }
-.architecture-zones { padding: 16px; display: grid; grid-template-columns: minmax(0, .82fr) minmax(0, 1.18fr); gap: 14px; background: #f7f7f4; }
-.architecture-zone { position: relative; min-width: 0; padding: 14px; border: 1px dashed #c9c9c3; border-radius: 12px; background: rgba(255, 255, 255, .84); }
-.architecture-zone > header { margin-bottom: 13px; display: flex; align-items: center; gap: 8px; }
-.architecture-zone > header > span { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 7px; color: #fff; background: #3d3d43; font-family: "DM Mono", monospace; }
-.architecture-zone > header strong, .architecture-zone > header small { display: block; }
-.architecture-zone > header small { margin-top: 1px; color: var(--muted); }
-.zone-data { grid-column: 1 / -1; }
-.architecture-flow { display: flex; align-items: stretch; justify-content: center; gap: 8px; }
-.architecture-node { min-width: 154px; padding: 11px; display: flex; align-items: center; gap: 9px; border: 1px solid #dcdcd7; border-radius: 10px; background: #fff; box-shadow: 0 3px 10px rgba(20, 20, 22, .04); }
-.architecture-node > span { width: 31px; height: 31px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 8px; color: #4e4e55; background: #efefec; font: 700 10px "DM Mono", monospace; }
-.architecture-node strong, .architecture-node small { display: block; }
-.architecture-node small { margin-top: 2px; color: var(--muted); line-height: 1.3; }
-.node-coral > span { color: #a83726; background: var(--red-soft); }
-.node-amber > span { color: #8c5a00; background: var(--amber-soft); }
-.node-blue > span { color: #266c86; background: #e7f6fa; }
-.node-green > span { color: var(--green); background: var(--green-soft); }
-.node-violet > span { color: #5748ad; background: var(--violet-soft); }
-.architecture-arrow { min-width: 48px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #7c7c83; }
-.architecture-arrow span { margin-bottom: 4px; color: var(--muted); text-align: center; }
-.architecture-arrow i { font-style: normal; font-size: 20px !important; }
-.architecture-arrow-wide { min-width: 150px; }
-.audit-streams { margin: 14px 0 0 auto; width: min(630px, 100%); padding: 9px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; border-top: 1px solid #e5e5e1; }
-.audit-streams span { padding: 4px 7px; border-radius: 999px; color: #35664f; background: #edf7f1; }
-.architecture-app-content { display: grid; gap: 12px; }
-.architecture-app-content .architecture-node { width: 100%; }
-.architecture-app-copy { padding: 10px; border-radius: 8px; background: #f7f7f4; }
-.architecture-app-copy strong, .architecture-app-copy span { display: block; }
-.architecture-app-copy span { margin-top: 4px; color: var(--muted); line-height: 1.45; }
-.architecture-vertical-link { margin-top: 12px; padding-top: 10px; border-top: 1px dashed #c9c9c3; color: #266c86; text-align: center; }
-.agent-shell { padding: 12px; border: 1px solid #ded9f6; border-radius: 10px; background: #faf9ff; }
-.agent-title { display: flex; align-items: center; gap: 9px; }
-.agent-title > span { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px; color: #fff; background: var(--violet); font: 700 9px "DM Mono", monospace; }
-.agent-title strong, .agent-title small { display: block; }
-.agent-title small { margin-top: 2px; color: #706a89; }
-.agent-gateway { margin: 12px 0; display: flex; align-items: stretch; }
-.agent-gateway .architecture-node { flex: 1; }
-.agent-capabilities { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
-.agent-capabilities .architecture-node { min-width: 0; padding: 8px; }
-.trace-route { margin-top: 10px; display: flex; align-items: center; justify-content: flex-end; gap: 7px; color: #35664f; }
-.trace-route i { font-style: normal; }
+.architecture-page { max-width: 1540px; margin: 0 auto; border: 1px solid var(--line); border-radius: 12px; background: #f7f9fc; box-shadow: 0 5px 20px rgba(30, 30, 27, .035); overflow: hidden; }
+.architecture-frame { width: 100%; height: 620px; display: block; border: 0; background: #f7f9fc; }
 .cost-view { min-height: 0; flex: 1 1 auto; margin-top: 12px; padding: 14px 4px 10px; overflow-y: auto; border-top: 1px solid #e3e3df; }
 .cost-summary { max-width: 1120px; margin: 0 auto 12px; display: grid; grid-template-columns: repeat(3, minmax(130px, 1fr)) minmax(260px, 1.4fr); border: 1px solid #deded9; border-radius: 9px; background: #fff; overflow: hidden; }
 .cost-summary > div { min-width: 0; margin: 0; padding: 11px 12px; border-right: 1px solid #e5e5e1; }

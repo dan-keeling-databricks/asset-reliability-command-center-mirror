@@ -541,22 +541,9 @@ function App() {
 }
 
 function ArchitectureView() {
-  return <section className="architecture-page" aria-labelledby="architecture-title">
-    <header className="architecture-header"><div><p>Solution architecture</p><h2 id="architecture-title">Real-time operations with durable audit</h2><span>Lakebase serves the live application while the Lakehouse retains long-term operational and AI evidence.</span></div><span className="architecture-badge">Databricks-native</span></header>
-    <div className="architecture-zones">
-      <section className="architecture-zone zone-data"><header><span>01</span><div><strong>Data foundation</strong><small>Operational state and durable history</small></div></header><div className="architecture-flow architecture-data-flow"><ArchitectureNode icon="⌁" title="Event broker" subtitle="Continuous pump telemetry" tone="coral" /><ArchitectureArrow label="stream" /><ArchitectureNode icon="⚡" title="Spark Structured Streaming" subtitle="Real-Time Mode" tone="amber" /><ArchitectureArrow label="write" /><ArchitectureNode icon="LB" title="Lakebase" subtitle="Live telemetry, incidents & work orders" tone="blue" /><ArchitectureArrow label="Lakebase Change Data Feed" wide /><ArchitectureNode icon="LH" title="Lakehouse" subtitle="Long-term audit & observability" tone="green" /></div><div className="audit-streams"><span>Operational change history</span><span>LLM traces</span><span>MCP & tool traces</span><span>Policy decisions</span><span>Approval receipts</span><span>Application audit events</span></div></section>
-      <section className="architecture-zone zone-app"><header><span>02</span><div><strong>Application</strong><small>Operator experience</small></div></header><div className="architecture-app-content"><ArchitectureNode icon="▣" title="Databricks App" subtitle="Asset Reliability Command Center" tone="coral" /><div className="architecture-app-copy"><strong>Live fleet and governed incident response</strong><span>Reads current operational state from Lakebase and presents only runtime-emitted agent activity.</span></div></div><div className="architecture-vertical-link"><span>Lakebase-backed operational API</span></div></section>
-      <section className="architecture-zone zone-ai"><header><span>03</span><div><strong>AI & governance</strong><small>Governed autonomous maintenance</small></div></header><div className="agent-shell"><div className="agent-title"><span>AI</span><div><strong>Emergency Maintenance Agent</strong><small>Evidence-led response with human approval</small></div></div><div className="agent-gateway"><ArchitectureNode icon="UG" title="Unity Gateway" subtitle="Identity, policy & approval" tone="violet" /><ArchitectureArrow label="govern" /></div><div className="agent-capabilities"><ArchitectureNode icon="◇" title="Governed Skill" subtitle="Response procedure" tone="amber" /><ArchitectureNode icon="✦" title="Foundation Model" subtitle="Reasoning & response" tone="violet" /><ArchitectureNode icon="⇄" title="MCP tools" subtitle="Lakebase-backed capabilities" tone="blue" /></div></div><div className="trace-route"><span>LLM and MCP traces</span><i>→</i><strong>Lakehouse</strong></div></section>
-    </div>
+  return <section className="architecture-page" aria-label="Solution architecture">
+    <iframe className="architecture-frame" src="/architecture-tab.html#embed" title="Asset Reliability Command Center architecture" />
   </section>;
-}
-
-function ArchitectureNode({ icon, title, subtitle, tone }: { icon: string; title: string; subtitle: string; tone: string }) {
-  return <div className={`architecture-node node-${tone}`}><span>{icon}</span><div><strong>{title}</strong><small>{subtitle}</small></div></div>;
-}
-
-function ArchitectureArrow({ label, wide = false }: { label: string; wide?: boolean }) {
-  return <div className={`architecture-arrow ${wide ? "architecture-arrow-wide" : ""}`}><span>{label}</span><i>→</i></div>;
 }
 
 function CostView({ incident }: { incident: IncidentDetail }) {
