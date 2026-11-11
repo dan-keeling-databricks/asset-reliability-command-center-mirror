@@ -34,6 +34,16 @@ def test_submit_work_order_card_hides_redundant_details() -> None:
     assert ".approval-context + .gateway-policy { margin-top: 14px; }" in styles
 
 
+def test_execution_timeline_shortens_only_the_skill_label() -> None:
+    """Keep governed Skill identity intact while shortening its timeline bar."""
+
+    app_source = (ROOT / "frontend/src/App.tsx").read_text()
+
+    assert 'if (activity.category !== "skill") return activity.title;' in app_source
+    assert 'const components = activity.title.split(".");' in app_source
+    assert "<i>{executionTimelineLabel(activity)}</i>" in app_source
+
+
 def test_architecture_review_defaults_to_130_percent_without_nested_app_frame() -> None:
     """Keep the review artifact faithful to the approved enlarged architecture."""
 

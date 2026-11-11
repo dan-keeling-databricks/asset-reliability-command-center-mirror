@@ -607,6 +607,12 @@ function completionFor(activity: RuntimeActivity, activities: RuntimeActivity[])
   ));
 }
 
+function executionTimelineLabel(activity: RuntimeActivity) {
+  if (activity.category !== "skill") return activity.title;
+  const components = activity.title.split(".");
+  return components[components.length - 1] || activity.title;
+}
+
 function gatewayDecision(activity: RuntimeActivity) {
   const decision = activity.details.find((detail) => detail.label.toLowerCase() === "decision")?.value;
   return decision && ["ALLOW", "ASK", "DENY"].includes(decision) ? decision : null;
@@ -751,7 +757,7 @@ function GanttLane({ label, activities, start, range, setHovered, setPinned }: {
       const leftPosition = window.innerWidth - rect.right >= popoverWidth + 20 ? rect.right + 12 : Math.max(24, rect.left - popoverWidth - 12);
       setPinned({ activity, left: leftPosition, top: Math.max(24, Math.min(rect.top, window.innerHeight - 544)), width: popoverWidth });
     };
-    return <div ref={(element) => { if (element) bars.current.set(activity.id, element); else bars.current.delete(activity.id); }} className={`execution-bar category-${activity.category} bar-${activity.status}`} key={activity.id} style={{ left: `${left}%`, width: `${width}%`, top: `${10 + (rows[activity.id] ?? 0) * 34}px` }} tabIndex={0} onMouseEnter={(event) => showCard(event.currentTarget)} onMouseLeave={() => setHovered(null)} onFocus={(event) => showCard(event.currentTarget)} onBlur={() => setHovered(null)} onClick={(event) => pinCard(event.currentTarget)}><i>{activity.title}</i></div>;
+    return <div ref={(element) => { if (element) bars.current.set(activity.id, element); else bars.current.delete(activity.id); }} className={`execution-bar category-${activity.category} bar-${activity.status}`} key={activity.id} style={{ left: `${left}%`, width: `${width}%`, top: `${10 + (rows[activity.id] ?? 0) * 34}px` }} tabIndex={0} onMouseEnter={(event) => showCard(event.currentTarget)} onMouseLeave={() => setHovered(null)} onFocus={(event) => showCard(event.currentTarget)} onBlur={() => setHovered(null)} onClick={(event) => pinCard(event.currentTarget)}><i>{executionTimelineLabel(activity)}</i></div>;
   })}</div></section>;
 }
 
