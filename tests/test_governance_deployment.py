@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 import pytest
+from databricks.sdk.service.catalog import ProvisioningInfoState
 
 import scripts.deploy_governance as deployment
 from backend.gateway import GatewayAsk, GatewayElicitation
@@ -11,6 +12,7 @@ from scripts.deploy_governance import (
     TOOLS,
     _connection_drift,
     _service_config_matches,
+    ensure_connection,
     ensure_service,
     probe_submit_policy,
 )
@@ -39,6 +41,60 @@ def test_connection_drift_ignores_redacted_secret_but_detects_routing_change() -
             "client_secret": "<redacted>",
         },
     )
+
+
+def test_failed_connection_rotates_credential_even_without_visible_drift() -> None:
+    updated_options: list[dict[str, str]] = []
+    created_secrets: list[str] = []
+
+    app = SimpleNamespace(
+        url="https://app.example",
+        service_principal_client_id="app-sp",
+        service_principal_id=123,
+    )
+    config = SimpleNamespace(host="https://workspace.example")
+    desired = deployment._connection_options(
+        SimpleNamespace(config=config), app, "<redacted>"
+    )
+    connection = SimpleNamespace(
+        options={key: value for key, value in desired.items() if key != "client_secret"},
+        provisioning_info=SimpleNamespace(state=ProvisioningInfoState.FAILED),
+    )
+
+    class Connections:
+        def get(self, _name):
+            return connection
+
+        def update(self, _name, options):
+            updated_options.append(options)
+            return SimpleNamespace(
+                options=options,
+                provisioning_info=SimpleNamespace(state=ProvisioningInfoState.ACTIVE),
+            )
+
+    class Secrets:
+        def create(self, _principal_id, lifetime):
+            assert lifetime == "31536000s"
+            created_secrets.append("created")
+            return SimpleNamespace(secret="fresh-secret", id="secret-id")
+
+        def delete(self, _principal_id, _secret_id):
+            raise AssertionError("Successful rotation must not delete the new credential")
+
+    client = SimpleNamespace(
+        config=config,
+        connections=Connections(),
+        service_principal_secrets_proxy=Secrets(),
+    )
+
+    reconciled, status = ensure_connection(client, app)
+
+    assert status == "recovered"
+    assert created_secrets == ["created"]
+    assert updated_options == [
+        deployment._connection_options(client, app, "fresh-secret")
+    ]
+    assert reconciled.provisioning_info.state == ProvisioningInfoState.ACTIVE
 
 
 def test_service_drift_is_patched_to_declared_tools_and_ask_policy() -> None:

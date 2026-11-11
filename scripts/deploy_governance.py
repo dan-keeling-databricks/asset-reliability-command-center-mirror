@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors import NotFound
 from databricks.sdk.service.apps import AppAccessControlRequest, AppPermissionLevel
-from databricks.sdk.service.catalog import ConnectionType
+from databricks.sdk.service.catalog import ConnectionType, ProvisioningInfoState
 
 from backend.gateway import GatewayAsk, GovernedGatewayClient
 
@@ -122,6 +122,19 @@ def _connection_drift(connection, desired: dict[str, str]) -> bool:
     )
 
 
+def _connection_provisioning_failed(connection) -> bool:
+    """Return whether Gateway can no longer authenticate through the connection.
+
+    HTTP OAuth connections can retain the same visible routing options after their stored
+    client credential stops refreshing access tokens. Treat the platform's ``FAILED`` state as
+    credential drift so reconciliation rotates the secret instead of preserving a broken
+    connection indefinitely.
+    """
+
+    provisioning_info = getattr(connection, "provisioning_info", None)
+    return getattr(provisioning_info, "state", None) == ProvisioningInfoState.FAILED
+
+
 def ensure_connection(client: WorkspaceClient, app) -> tuple[object, str]:
     """Create or reconcile the App-backed MCP source connection."""
 
@@ -148,7 +161,8 @@ def ensure_connection(client: WorkspaceClient, app) -> tuple[object, str]:
         return connection, "created"
 
     desired_without_secret = _connection_options(client, app, "<redacted>")
-    if not _connection_drift(connection, desired_without_secret):
+    connection_failed = _connection_provisioning_failed(connection)
+    if not connection_failed and not _connection_drift(connection, desired_without_secret):
         return connection, "unchanged"
     secret = client.service_principal_secrets_proxy.create(
         str(app.service_principal_id), lifetime="31536000s"
@@ -161,7 +175,7 @@ def ensure_connection(client: WorkspaceClient, app) -> tuple[object, str]:
     except Exception:
         client.service_principal_secrets_proxy.delete(str(app.service_principal_id), secret.id)
         raise
-    return connection, "updated"
+    return connection, "recovered" if connection_failed else "updated"
 
 
 def _service_config(function_id: str) -> dict[str, object]:
