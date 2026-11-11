@@ -44,6 +44,18 @@ def test_execution_timeline_shortens_only_the_skill_label() -> None:
     assert "<i>{executionTimelineLabel(activity)}</i>" in app_source
 
 
+def test_cost_table_typography_uses_the_presentation_scale() -> None:
+    """Keep Cost table headers and cells aligned with the scalable KPI typography."""
+
+    styles = (ROOT / "frontend/src/styles.css").read_text()
+
+    scalable_size = "font-size: calc(12px * var(--font-scale))"
+    assert f".cost-table th {{ color: #68686f; background: #f5f5f2; {scalable_size}" in styles
+    assert f".cost-table td {{ {scalable_size}; }}" in styles
+    assert ".cost-table th { color: #68686f; background: #f5f5f2; font-size: 8px" not in styles
+    assert ".cost-table td { font-size: 10px; }" not in styles
+
+
 def test_architecture_review_defaults_to_130_percent_without_nested_app_frame() -> None:
     """Keep the review artifact faithful to the approved enlarged architecture."""
 

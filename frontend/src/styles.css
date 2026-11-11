@@ -362,8 +362,8 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .cost-table th, .cost-table td { padding: 8px 9px; border-right: 1px solid #e8e8e4; border-bottom: 1px solid #e8e8e4; text-align: left; }
 .cost-table th:last-child, .cost-table td:last-child { border-right: 0; }
 .cost-table tbody tr:last-child td { border-bottom: 0; }
-.cost-table th { color: #68686f; background: #f5f5f2; font-size: 8px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
-.cost-table td { font-size: 10px; }
+.cost-table th { color: #68686f; background: #f5f5f2; font-size: calc(12px * var(--font-scale)); font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.cost-table td { font-size: calc(12px * var(--font-scale)); }
 .cost-table td:nth-child(n+4):nth-child(-n+7) { font-family: "DM Mono", monospace; text-align: right; }
 .cost-table code { color: #51468e; font: inherit; font-family: "DM Mono", monospace; }
 .cost-table a { color: #5748ad; font-weight: 700; text-decoration: none; }
