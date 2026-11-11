@@ -289,20 +289,7 @@
     .flow-blue { stroke: #287fca; marker-end: url(#arrow-blue); }
     .flow-green { stroke: #16895e; marker-end: url(#arrow-green); }
     .flow-violet { stroke: #6557cf; marker-end: url(#arrow-violet); }
-
-    .connector-label rect {
-      fill: rgba(255, 255, 255, .96);
-      rx: 6;
-    }
-
-    .connector-label text {
-      fill: #536179;
-      font: 500 clamp(11px, calc(11px * var(--font-scale)), 12.5px) ui-monospace, SFMono-Regular, Menlo, monospace;
-      letter-spacing: .01em;
-    }
-
-    .connector-label.green text { fill: #39715c; }
-    .connector-label.violet text { fill: #5f55a5; }
+    .flow-bidirectional { marker-start: url(#arrow-green); }
   </style>
 </head>
 <body id="embed">
@@ -401,32 +388,18 @@
       <svg class="connectors" viewBox="0 0 1280 620" aria-hidden="true">
         <defs>
           <marker id="arrow-blue" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#287fca"/></marker>
-          <marker id="arrow-green" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#16895e"/></marker>
+          <marker id="arrow-green" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto-start-reverse"><path d="M0,0 L0,6 L7,3 z" fill="#16895e"/></marker>
           <marker id="arrow-violet" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#6557cf"/></marker>
         </defs>
 
         <path class="flow flow-blue" d="M236 225 H282"/>
         <path class="flow flow-blue" d="M502 225 H543"/>
         <path class="flow flow-green" d="M733 225 H809"/>
-        <path class="flow flow-green" d="M638 295 V400"/>
-        <path class="flow flow-violet" d="M1031 279 V393"/>
+        <path class="flow flow-green flow-bidirectional" d="M638 295 V400"/>
+        <path class="flow flow-violet" d="M1031 295 V393"/>
         <path class="flow flow-violet" d="M1032 481 V496 H877 V512"/>
         <path class="flow flow-violet" d="M1032 481 V512"/>
         <path class="flow flow-violet" d="M1032 496 H1185 V512"/>
-        <path class="flow flow-violet" d="M839 437 H770 V465 H733"/>
-
-        <g class="connector-label green">
-          <rect x="425" y="328" width="205" height="27"/>
-          <text x="436" y="346">Lakebase Change Data Feed</text>
-        </g>
-        <g class="connector-label green">
-          <rect x="742" y="193" width="58" height="27"/>
-          <text x="751" y="211">App API</text>
-        </g>
-        <g class="connector-label violet">
-          <rect x="1044" y="327" width="116" height="27"/>
-          <text x="1055" y="345">governed access</text>
-        </g>
       </svg>
     </section>
   </main>

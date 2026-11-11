@@ -46,6 +46,26 @@ def test_architecture_review_defaults_to_130_percent_without_nested_app_frame() 
     assert "Asset Reliability Command Centre" in app_html
 
 
+def test_architecture_connectors_match_reviewed_data_flow() -> None:
+    """Lock the simplified labels and reviewed connector geometry."""
+
+    app_html = (ROOT / "frontend/public/architecture-tab.html").read_text()
+
+    assert "App API" not in app_html
+    assert "governed access" not in app_html.lower()
+    assert "Lakebase Change Data Feed" not in app_html
+    assert 'id="arrow-green"' in app_html
+    assert 'orient="auto-start-reverse"' in app_html
+    assert '.flow-bidirectional { marker-start: url(#arrow-green); }' in app_html
+    assert (
+        '<path class="flow flow-green flow-bidirectional" d="M638 295 V400"/>'
+        in app_html
+    )
+    assert '<path class="flow flow-violet" d="M1031 295 V393"/>' in app_html
+    assert "M1031 279 V393" not in app_html
+    assert "M839 437 H770 V465 H733" not in app_html
+
+
 def test_reviewed_ui_copy_and_vertical_incident_space_are_preserved() -> None:
     """Lock the British UI copy, emphasized title, and enlarged review modal."""
 
