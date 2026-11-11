@@ -77,17 +77,24 @@ def test_architecture_connectors_match_reviewed_data_flow() -> None:
 
 
 def test_reviewed_ui_copy_and_vertical_incident_space_are_preserved() -> None:
-    """Lock the British UI copy, emphasized title, and enlarged review modal."""
+    """Lock the British UI copy, exact emphasized title, and enlarged review modal."""
 
     app_source = (ROOT / "frontend/src/App.tsx").read_text()
+    architecture_html = (ROOT / "frontend/public/architecture-tab.html").read_text()
     styles = (ROOT / "frontend/src/styles.css").read_text()
     index_html = (ROOT / "frontend/index.html").read_text()
+    architecture_title = (
+        "A real-time architecture for detecting asset <strong>risk</strong>, "
+        "governing autonomous <strong>response</strong>, and preserving operational "
+        "<strong>evidence</strong>."
+    )
 
     assert "Circulatory pump assets" in app_source
     assert "Comparable pump assets" not in app_source
-    assert "asset <strong>risk</strong>" in app_source
-    assert "autonomous <strong>response</strong>" in app_source
-    assert "operational <strong>evidence</strong>" in app_source
+    assert architecture_title in app_source
+    assert architecture_title in architecture_html
+    assert "A real-time Databricks architecture" not in app_source
+    assert "A real-time Databricks architecture" not in architecture_html
     assert "Command Center" not in app_source
     assert "Asset Reliability Command Centre" in index_html
     assert "margin: 0 0 24px 13px" in styles
