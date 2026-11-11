@@ -567,7 +567,7 @@ function ArchitectureView({ fontScale }: { fontScale: number }) {
   useEffect(() => applyFontScale(), [applyFontScale]);
 
   return <section className="architecture-page" aria-label="Solution architecture">
-    <h2 className="architecture-title">A real-time Databricks architecture for detecting asset <strong>risk</strong>, governing autonomous <strong>response</strong>, and preserving operational <strong>evidence</strong>.</h2>
+    <h2 className="architecture-title">A real-time architecture for detecting asset <strong>risk</strong>, governing autonomous <strong>response</strong>, and preserving operational <strong>evidence</strong>.</h2>
     {architectureSource
       ? <iframe ref={frameRef} className="architecture-frame" src={architectureSource} title="Asset Reliability Command Centre architecture" onLoad={applyFontScale} />
       : <div className="architecture-frame architecture-frame-loading" role="status">Loading architecture…</div>}
