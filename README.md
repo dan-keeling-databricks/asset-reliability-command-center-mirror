@@ -1,5 +1,9 @@
 # Asset Reliability Command Centre
 
+> [!IMPORTANT]
+> This repository is an archived mirror. The maintained public repository is
+> [dan-keeling-databricks/asset-reliability-command-center](https://github.com/dan-keeling-databricks/asset-reliability-command-center).
+
 Asset Reliability Command Centre is a customer-facing Databricks reference demo for detecting
 industrial pump risk, investigating it with an autonomous agent, and governing the resulting
 maintenance action with a real human approval.
